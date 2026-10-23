@@ -25,7 +25,7 @@ const AuthFlow = () => {
         await profileAPI.getProfile();
         // User is authenticated, redirect to dashboard
         navigate('/dashboard', { replace: true });
-      } catch (error) {
+      } catch {
         // Token is invalid, remove it and show auth page
         localStorage.removeItem('token');
         setIsCheckingAuth(false);

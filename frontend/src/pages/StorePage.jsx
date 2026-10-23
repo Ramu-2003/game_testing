@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { Zap, X } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Zap } from "lucide-react";
 import { Navbar } from '../components/Navbar';
 import { Footer } from "../components/landing/Footer";
 import { CustomCursor } from "../components/landing/CustomCursor";
@@ -14,23 +13,16 @@ const PAGE_BG = {
 };
 
 const StorePage = () => {
-  const navigate = useNavigate();
   const [themeKey, setThemeKey] = useState(() => localStorage.getItem('themeKey') || 'purple');
   useEffect(() => {
     localStorage.setItem('themeKey', themeKey);
   }, [themeKey]);
 
-  const [adsRemaining, setAdsRemaining] = useState(5);
-  const [showAdModal, setShowAdModal] = useState(false);
-  const [adTimer, setAdTimer] = useState(15);
-  const [canCloseAd, setCanCloseAd] = useState(false);
-  const [adMessage, setAdMessage] = useState('');
-  const [adsResetTime, setAdsResetTime] = useState(null);
-  const [timeUntilReset, setTimeUntilReset] = useState('');
   const [xpPoints, setXpPoints] = useState(0);
-  const [gThunderPoints, setGThunderPoints] = useState(0);
   const [convertAmount, setConvertAmount] = useState(100);
   const [convertMessage, setConvertMessage] = useState('');
+  const [isConverting, setIsConverting] = useState(false);
+  const conversionRequestId = useRef(null);
   
   const themes = {
     red: {
@@ -67,52 +59,53 @@ const StorePage = () => {
   const pageBg = PAGE_BG[themeKey] || "#f8f4ff";
 
   useEffect(() => {
-    fetchAdsInfo();
+    fetchPointsInfo();
   }, []);
 
-  // Timer countdown effect
-  useEffect(() => {
-    if (!adsResetTime || adsRemaining > 0) {
-      setTimeUntilReset('');
-      return;
-    }
-
-    const updateTimer = () => {
-      const now = new Date();
-      const resetTime = new Date(adsResetTime);
-      const diff = resetTime - now;
-
-      if (diff <= 0) {
-        setTimeUntilReset('Ready!');
-        fetchAdsInfo(); // Refresh to reset counter
-        return;
-      }
-
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-
-      setTimeUntilReset(`${hours}h ${minutes}m ${seconds}s`);
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    return () => clearInterval(interval);
-  }, [adsResetTime, adsRemaining]);
-
-  const fetchAdsInfo = async () => {
+  const fetchPointsInfo = async () => {
     try {
       const response = await pointsAPI.getInfo();
-      setAdsRemaining(response.data.adsWatched.remaining);
-      setAdsResetTime(response.data.adsWatched.canWatchAt);
       setXpPoints(response.data.xpPoints || 0);
-      setGThunderPoints(response.data.gThunderPoints || 0);
     } catch (error) {
-      console.error('Error fetching ads info:', error);
+      console.error('Error fetching points info:', error);
+    }
+  };
+
+  const createConversionRequestId = (amount) => {
+    if (conversionRequestId.current) return conversionRequestId.current;
+    const storageKey = 'game-trail:pending-xp-conversions:v1';
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+      if (typeof saved[String(amount)] === 'string') {
+        conversionRequestId.current = saved[String(amount)];
+        return conversionRequestId.current;
+      }
+      const requestId = globalThis.crypto?.randomUUID?.()
+        || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      saved[String(amount)] = requestId;
+      sessionStorage.setItem(storageKey, JSON.stringify(saved));
+      conversionRequestId.current = requestId;
+    } catch {
+      conversionRequestId.current = globalThis.crypto?.randomUUID?.()
+        || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    return conversionRequestId.current;
+  };
+
+  const clearConversionRequestId = (amount) => {
+    conversionRequestId.current = null;
+    try {
+      const storageKey = 'game-trail:pending-xp-conversions:v1';
+      const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}');
+      delete saved[String(amount)];
+      sessionStorage.setItem(storageKey, JSON.stringify(saved));
+    } catch {
+      // Session storage can be disabled; the server still enforces the current request id.
     }
   };
 
   const handleConvertXp = async () => {
+    if (isConverting) return;
     if (convertAmount < 100) {
       setConvertMessage('Minimum 100 XP required');
       setTimeout(() => setConvertMessage(''), 3000);
@@ -131,11 +124,14 @@ const StorePage = () => {
       return;
     }
 
+    const requestId = createConversionRequestId(convertAmount);
+
+    setIsConverting(true);
     try {
-      const response = await pointsAPI.convertXp(convertAmount);
+      const response = await pointsAPI.convertXp(convertAmount, requestId);
+      clearConversionRequestId(convertAmount);
       setConvertMessage(`Converted ${response.data.xpSpent} XP → ${response.data.gThunderEarned} G-THUNDER!`);
       setXpPoints(response.data.newXpBalance);
-      setGThunderPoints(response.data.newGThunderBalance);
       
       // Trigger points update event
       window.dispatchEvent(new Event('pointsUpdated'));
@@ -145,57 +141,8 @@ const StorePage = () => {
       console.error('Error converting XP:', error);
       setConvertMessage(error.response?.data?.message || 'Error converting XP');
       setTimeout(() => setConvertMessage(''), 3000);
-    }
-  };
-
-  const handleWatchAd = () => {
-    if (adsRemaining <= 0) {
-      setAdMessage('Daily ad limit reached! Come back tomorrow.');
-      return;
-    }
-    
-    setShowAdModal(true);
-    setAdTimer(15);
-    setCanCloseAd(false);
-    setAdMessage('');
-    
-    // Start countdown
-    const interval = setInterval(() => {
-      setAdTimer((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setCanCloseAd(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const handleCloseAd = async () => {
-    if (!canCloseAd) return;
-    
-    try {
-      const response = await pointsAPI.watchAd();
-      setAdMessage(`+${response.data.xpReward} XP Points!`);
-      setAdsRemaining(response.data.adsRemaining);
-      setAdsResetTime(response.data.canWatchAt);
-      setXpPoints(response.data.newXpBalance);
-      
-      // Trigger points update event
-      window.dispatchEvent(new Event('pointsUpdated'));
-      
-      setTimeout(() => {
-        setShowAdModal(false);
-        setAdMessage('');
-      }, 2000);
-    } catch (error) {
-      console.error('Error watching ad:', error);
-      setAdMessage(error.response?.data?.message || 'Error claiming reward');
-      setTimeout(() => {
-        setShowAdModal(false);
-        setAdMessage('');
-      }, 2000);
+    } finally {
+      setIsConverting(false);
     }
   };
 
@@ -248,7 +195,7 @@ const StorePage = () => {
             className="mt-4 font-mono text-gray-500 uppercase tracking-[0.22em]"
             style={{ fontSize: "11px" }}
           >
-            Watch Ads · Complete Tasks · Unlock Rewards
+            XP conversion · Verified game rewards
           </p>
         </div>
 
@@ -279,10 +226,10 @@ const StorePage = () => {
                 className="font-techno font-bold text-gray-800 text-sm mb-2"
                 style={{ letterSpacing: "0.16em" }}
               >
-                WATCH ADS
+                AD REWARDS UNAVAILABLE
               </h3>
               <p className="text-xs text-gray-600">
-                50 XP Points per ad
+                Connect a verified ad provider to enable ad rewards.
               </p>
             </div>
 
@@ -293,50 +240,23 @@ const StorePage = () => {
                 className="border border-gray-400 rounded px-4 py-1.5 text-gray-600 font-techno font-medium uppercase"
                 style={{ fontSize: "11px", letterSpacing: "0.18em" }}
               >
-                {adsRemaining}/5 AVAILABLE
+                PROVIDER NOT CONFIGURED
               </span>
-              
-              {adsRemaining === 0 && timeUntilReset && (
-                <div className="text-xs text-gray-600 font-mono text-center">
-                  <div className="font-semibold mb-1">Next slot in:</div>
-                  <div className="text-sm font-bold" style={{ color: currentTheme.accent }}>
-                    {timeUntilReset}
-                  </div>
-                </div>
-              )}
-              
               <button
                 type="button"
-                onClick={handleWatchAd}
-                disabled={adsRemaining <= 0}
-                className="font-sans font-bold text-white uppercase rounded-full transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+                className="font-sans font-bold text-white uppercase rounded-full opacity-60 cursor-not-allowed"
                 style={{
                   width: "148px",
                   paddingTop: "10px",
                   paddingBottom: "10px",
-                  background: adsRemaining > 0 ? "#c81e1e" : "#9CA3AF",
+                  background: "#9CA3AF",
                   letterSpacing: "0.22em",
                   fontSize: "13px",
-                  boxShadow: adsRemaining > 0 ? '0 2px 8px rgba(200, 30, 30, 0.3)' : 'none',
-                }}
-                onMouseEnter={(e) => {
-                  if (adsRemaining > 0) {
-                    e.currentTarget.style.background = "#a01818";
-                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(200, 30, 30, 0.4)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (adsRemaining > 0) {
-                    e.currentTarget.style.background = "#c81e1e";
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(200, 30, 30, 0.3)';
-                  }
                 }}
               >
-                WATCH NOW
+                COMING SOON
               </button>
-              {adMessage && !showAdModal && (
-                <p className="text-xs text-gray-600 mt-2">{adMessage}</p>
-              )}
             </div>
           </div>
 
@@ -375,7 +295,11 @@ const StorePage = () => {
                   min="100"
                   step="100"
                   value={convertAmount}
-                  onChange={(e) => setConvertAmount(parseInt(e.target.value) || 0)}
+                  disabled={isConverting}
+                  onChange={(e) => {
+                    conversionRequestId.current = null;
+                    setConvertAmount(parseInt(e.target.value) || 0);
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-center font-techno text-sm"
                   placeholder="Enter XP amount"
                 />
@@ -387,7 +311,7 @@ const StorePage = () => {
               <button
                 type="button"
                 onClick={handleConvertXp}
-                disabled={xpPoints < 100}
+                disabled={xpPoints < 100 || isConverting}
                 className="font-sans font-bold text-white uppercase rounded-full transition-all duration-300 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   width: "148px",
@@ -411,7 +335,7 @@ const StorePage = () => {
                   }
                 }}
               >
-                CONVERT
+                {isConverting ? 'CONVERTING…' : 'CONVERT'}
               </button>
               {convertMessage && (
                 <p className="text-xs text-gray-600 mt-2 text-center">{convertMessage}</p>
@@ -420,42 +344,6 @@ const StorePage = () => {
           </div>
         </div>
       </main>
-
-      {/* Ad Modal */}
-      {showAdModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black">
-          {canCloseAd && (
-            <button
-              onClick={handleCloseAd}
-              className="absolute top-8 right-8 w-12 h-12 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all duration-300"
-              aria-label="Close Ad"
-            >
-              <X className="w-6 h-6 text-white" />
-            </button>
-          )}
-          
-          <div className="text-center">
-            {!canCloseAd ? (
-              <>
-                <div className="text-white font-techno text-6xl font-bold mb-4">
-                  {adTimer}
-                </div>
-                <p className="text-white/70 font-sans text-lg">
-                  Please wait...
-                </p>
-              </>
-            ) : adMessage ? (
-              <div className="text-white font-techno text-3xl font-bold animate-pulse">
-                {adMessage}
-              </div>
-            ) : (
-              <div className="text-white font-techno text-2xl font-bold">
-                Click X to claim your reward!
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       <div
         style={{

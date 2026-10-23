@@ -5,7 +5,7 @@ const { tryWithFallback } = require('../config/computerModeApiKeys');
 // Test case count per difficulty
 // ─────────────────────────────────────────────────────────────────────────────
 const getTestCaseCount = (difficulty) => {
-  return { Beginner: 3, Moderate: 4, Hard: 5 }[difficulty] || 3;
+  return { Beginner: 3, Moderate: 4, Advanced: 5, Hard: 5 }[difficulty] || 3;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,15 @@
+User-agent: *
+Allow: /learn
+Disallow: /dashboard
+Disallow: /profile
+Disallow: /store
+Disallow: /levels/
+Disallow: /phases/
+Disallow: /computer-mode
+Disallow: /custom-mode
+Disallow: /leaderboard
+Disallow: /tournament
+Disallow: /bug-hunter
+Disallow: /specials-mode
+Disallow: /tri-mode
+Disallow: /reset-password/

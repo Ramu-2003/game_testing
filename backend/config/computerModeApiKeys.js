@@ -20,26 +20,13 @@ const loadSharedKeys = () => {
 };
 
 const SHARED_API_KEYS = loadSharedKeys();
+const { MODELS, getModels, getPrimaryModel } = require('./groqModels');
 
 if (SHARED_API_KEYS.length === 0) {
   console.warn('[computerModeApiKeys] WARNING: No keys found in GROQ_API_KEYS env variable.');
 } else {
   console.log(`[computerModeApiKeys] Loaded ${SHARED_API_KEYS.length} API key(s) from GROQ_API_KEYS.`);
 }
-
-// All Groq models for maximum fallback capacity
-const MODELS = [
-  'llama-3.3-70b-versatile',       // Latest, most accurate (70B)
-  'llama-3.2-90b-text-preview',    // Newest, largest (90B) - Preview
-  'llama-3.1-70b-versatile',       // Previous version (70B)
-  'mixtral-8x7b-32768',            // Mixtral MoE, large context (32K)
-  'llama3-70b-8192',               // Llama 3 with 8K context
-  'llama-3.2-11b-text-preview',    // Good middle ground (11B) - Preview
-  'llama-3.1-8b-instant',          // Fast, smaller model (8B)
-  'llama3-8b-8192',                // Llama 3 smaller version
-  'gemma2-9b-it',                  // Google Gemma 2 (9B)
-  'gemma-7b-it',                   // Google Gemma (7B)
-];
 
 let validationUsageCount = 0;
 let challengeUsageCount = 0;
@@ -124,11 +111,6 @@ const tryWithFallback = async (type, apiCallFn) => {
 };
 
 /** @returns {string[]} */
-const getModels = () => [...MODELS];
-
-/** @returns {string} */
-const getPrimaryModel = () => MODELS[0];
-
 /**
  * Get API key stats.
  * @returns {{ validation: object, challenge: object, models: number }}

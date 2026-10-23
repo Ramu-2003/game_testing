@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Edit2, Check, Lock, Unlock, Trophy, Zap, Shield, Activity, User, Award, Flame, Sparkles } from "lucide-react";
+import { Edit2, Check, Lock, Unlock, Trophy, Zap, Shield, Activity, User, Award, Flame, Bug } from "lucide-react";
 import { Navbar } from '../components/Navbar';
 import { DailyRewards } from "../components/DailyRewards";
 import { Footer } from "../components/landing/Footer";
 import { CustomCursor } from "../components/landing/CustomCursor";
-import { profileAPI, levelsAPI } from "../utils/api";
+import { profileAPI, levelsAPI, tournamentAPI, bugHunterAPI, pointsAPI } from "../utils/api";
 import { PremiumIcon } from "../components/landing/PremiumIcon";
+import RANK_TIERS from "../../../shared/rankTiers.json";
+import curriculumLimits from "../config/curriculumLimits";
 
 const MALE_IMAGES = [
   "/assets/profile-images/male_human_01.png",
@@ -123,18 +125,6 @@ const BOT_CONFIGS = [
   { name: "Test Case Destroyer", image: "/assets/TEST-CASE-DESTROYER-BG.png", difficulty: "EXPERT", color: "#ef4444", desc: "Unforgiving optimizer" },
 ];
 
-const RANK_TIERS = [
-  { name: "SYNTAX SPAMMER", min: 0, max: 500, color: "#8c8c8c", iconName: "Bug" },
-  { name: "LOGIC RUNNER", min: 500, max: 1000, color: "#cd7f32", iconName: "Medal" },
-  { name: "CODE BREAKER", min: 1000, max: 1500, color: "#a3a3a3", iconName: "Medal" },
-  { name: "COMPILER CONQUEROR", min: 1500, max: 2000, color: "#eab308", iconName: "Star" },
-  { name: "ALGORITHM SENTINEL", min: 2000, max: 2500, color: "#38bdf8", iconName: "Diamond" },
-  { name: "NEURAL SHADOW", min: 2500, max: 3000, color: "#00ffd4", iconName: "Hexagon" },
-  { name: "CYBER GLADIATOR", min: 3000, max: 3500, color: "#a855f7", iconName: "Crown" },
-  { name: "AI SLAYER", min: 3500, max: 4000, color: "#ec4899", iconName: "Zap" },
-  { name: "SYSTEM OVERLORD", min: 4000, max: Infinity, color: "#f97316", iconName: "Trophy" },
-];
-
 const THEMES = {
   red: {
     accent: "#ff5252",
@@ -178,13 +168,15 @@ const ProfilePage = () => {
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
   const [uid, setUid] = useState("");
-  const [gender, setGender] = useState("");
   const [bio, setBio] = useState("Add some things about you");
   const [selectedImage, setSelectedImage] = useState(PROFILE_IMAGES[0]);
   
   const [xpPoints, setXpPoints] = useState(0);
   const [gThunderPoints, setGThunderPoints] = useState(0);
   const [rankPoints, setRankPoints] = useState(0);
+  const [tournamentSummary, setTournamentSummary] = useState(null);
+  const [bugHunterSummary, setBugHunterSummary] = useState(null);
+  const [rewardHistory, setRewardHistory] = useState([]);
   const [nameChangeCount, setNameChangeCount] = useState(0);
   const [isPublic, setIsPublic] = useState(true);
 
@@ -211,6 +203,8 @@ const ProfilePage = () => {
   const [jsPhases, setJsPhases] = useState(Array(10).fill(0));
   const [pythonPhases, setPythonPhases] = useState(Array(10).fill(0));
   const [javaPhases, setJavaPhases] = useState(Array(10).fill(0));
+  const [courseLevelTotals, setCourseLevelTotals] = useState({});
+  const [totalMissionCount, setTotalMissionCount] = useState(null);
 
   const maxNameChanges = 3;
 
@@ -224,14 +218,8 @@ const ProfilePage = () => {
     return { currentLvl, xpInLevel, percentage };
   };
 
-  const currentRank = RANK_TIERS.find(t => rankPoints >= t.min && rankPoints < t.max) || RANK_TIERS[0];
-  const nextRankIndex = RANK_TIERS.indexOf(currentRank) + 1;
-  const nextRank = nextRankIndex < RANK_TIERS.length ? RANK_TIERS[nextRankIndex] : null;
-
-  const totalWins = winsVsBots.reduce((a, b) => a + b, 0);
-  const totalLosses = lossesVsBots.reduce((a, b) => a + b, 0);
-  const winRate = totalWins + totalLosses > 0 ? Math.round((totalWins / (totalWins + totalLosses)) * 100) : 0;
-
+  const displayedRankPoints = isViewingOther ? Number(searchResult?.rankPoints) || 0 : rankPoints;
+  const currentRank = RANK_TIERS.find(t => displayedRankPoints >= t.min && (t.max === null || displayedRankPoints < t.max)) || RANK_TIERS[0];
   useEffect(() => {
     const fetchProfileData = async () => {
       try {
@@ -240,20 +228,38 @@ const ProfilePage = () => {
           profileAPI.getProfile(),
           levelsAPI.getProgress()
         ]);
+        const [tournamentResult, bugHunterResult, historyResult] = await Promise.allSettled([
+          tournamentAPI.getProfile(),
+          bugHunterAPI.getStats(),
+          pointsAPI.getHistory({ limit: 16 }),
+        ]);
+        if (tournamentResult.status === 'fulfilled') setTournamentSummary(tournamentResult.value.data);
+        if (bugHunterResult.status === 'fulfilled') setBugHunterSummary(bugHunterResult.value.data);
+        if (historyResult.status === 'fulfilled') setRewardHistory(historyResult.value.data.transactions || []);
 
         const u = profileRes.data.user;
         const prog = levelsRes.data.levelProgress;
         const compList = levelsRes.data.completedLevels || [];
+        const phaseLevelCounts = levelsRes.data.phaseLevelCounts || {};
+        const courseTotals = Object.fromEntries(Object.entries(phaseLevelCounts).map(([course, phases]) => [
+          course,
+          Object.values(phases).reduce((total, count) => total + (Number(count) || 0), 0),
+        ]));
+        setCourseLevelTotals(courseTotals);
+        setTotalMissionCount(Object.values(courseTotals).reduce((total, count) => total + count, 0));
 
         setCompletedLevelsCount(compList.length);
 
         if (prog) {
-          // Dynamic calculation of levels completed per phase (0-10 levels per phase)
+          // Convert each stored next-unlocked level into completed levels, using
+          // the server's current phase size so the profile follows curriculum growth.
           const calculatePhases = (courseKey) => {
-            return Array(10).fill(0).map((_, idx) => {
+            const counts = phaseLevelCounts[courseKey] || {};
+            return Array(curriculumLimits.phaseCount).fill(0).map((_, idx) => {
               const phaseNum = idx + 1;
-              const currentCompleted = prog[courseKey]?.[`phase${phaseNum}`] || 0;
-              return Math.min(currentCompleted > 0 ? currentCompleted - 1 : 0, 10);
+              const nextUnlocked = Number(prog[courseKey]?.[`phase${phaseNum}`]) || 0;
+              const phaseSize = Number(counts[`phase${phaseNum}`]) || 0;
+              return Math.min(Math.max(nextUnlocked - 1, 0), phaseSize);
             });
           };
 
@@ -278,7 +284,6 @@ const ProfilePage = () => {
           setFullName(u.name);
           setUsername(u.username);
           setUid(u.uid);
-          setGender(u.gender || "");
           setBio(u.bio);
           setSelectedImage(u.profileImage);
           setXpPoints(u.xpPoints || 0);
@@ -312,6 +317,22 @@ const ProfilePage = () => {
 
     fetchProfileData();
   }, [navigate]);
+
+  useEffect(() => {
+    const refreshBalancesAndHistory = async () => {
+      const [pointsResult, historyResult] = await Promise.allSettled([
+        pointsAPI.getInfo(),
+        pointsAPI.getHistory({ limit: 16 }),
+      ]);
+      if (pointsResult.status === 'fulfilled') {
+        setXpPoints(pointsResult.value.data.xpPoints || 0);
+        setGThunderPoints(pointsResult.value.data.gThunderPoints || 0);
+      }
+      if (historyResult.status === 'fulfilled') setRewardHistory(historyResult.value.data.transactions || []);
+    };
+    window.addEventListener('pointsUpdated', refreshBalancesAndHistory);
+    return () => window.removeEventListener('pointsUpdated', refreshBalancesAndHistory);
+  }, []);
 
   const handleSearch = async () => {
     if (!searchUid.trim()) {
@@ -396,7 +417,6 @@ const ProfilePage = () => {
       setFullName(u.name);
       setUsername(u.username);
       setUid(u.uid);
-      setGender(u.gender);
       setBio(u.bio);
       setSelectedImage(u.profileImage);
       setNameChangeCount(u.nameChangeCount);
@@ -436,15 +456,6 @@ const ProfilePage = () => {
   const activeTotalLosses = activeLossesVsBots.reduce((a, b) => a + b, 0);
   const activeWinRate = activeTotalWins + activeTotalLosses > 0 ? Math.round((activeTotalWins / (activeTotalWins + activeTotalLosses)) * 100) : 0;
 
-  // RPG titles based on Level
-  const getRPGTitle = (lvl) => {
-    if (lvl < 2) return "PROBATIONARY CODER";
-    if (lvl < 4) return "LOGIC RUNNER";
-    if (lvl < 7) return "COMPILER OUTLAW";
-    if (lvl < 10) return "CYBERNETIC CODER";
-    return "ARCHITECT CONSOLE MASTER";
-  };
-
   // Skill pentagon SVG calculation (interactive Skill Tree Wheel)
   const drawSkillTreeSvg = () => {
     const size = 300;
@@ -453,26 +464,26 @@ const ProfilePage = () => {
     
     // Core details
     const languages = [
-      { name: "HTML", color: "#ff5252", phases: htmlPhases },
-      { name: "CSS", color: "#0099ff", phases: cssPhases },
-      { name: "JS", color: "#f7df1e", phases: jsPhases },
-      { name: "PYTHON", color: "#3776ab", phases: pythonPhases },
-      { name: "JAVA", color: "#f89820", phases: javaPhases },
+      { id: 'html', name: "HTML", color: "#ff5252", phases: htmlPhases },
+      { id: 'css', name: "CSS", color: "#0099ff", phases: cssPhases },
+      { id: 'javascript', name: "JS", color: "#f7df1e", phases: jsPhases },
+      { id: 'python', name: "PYTHON", color: "#3776ab", phases: pythonPhases },
+      { id: 'java', name: "JAVA", color: "#f89820", phases: javaPhases },
     ];
 
     const vertices = languages.map((lang, idx) => {
       const angle = (Math.PI * 2 * idx) / 5 - Math.PI / 2;
-      // Get completion percentage (total levels completed / max levels (100))
       const totalComp = lang.phases.reduce((sum, p) => sum + p, 0);
+      const totalLevels = courseLevelTotals[lang.id] || 0;
       // Base radius of 0.05 for visibility, remaining 0.95 scales with completion
-      const completionRatio = 0.05 + (Math.min(totalComp / 100, 1.0) * 0.95);
+      const completionRatio = 0.05 + (totalLevels ? Math.min(totalComp / totalLevels, 1.0) * 0.95 : 0);
       
       const cx = center + radius * Math.cos(angle);
       const cy = center + radius * Math.sin(angle);
       const valX = center + (radius * completionRatio) * Math.cos(angle);
       const valY = center + (radius * completionRatio) * Math.sin(angle);
 
-      return { ...lang, cx, cy, valX, valY, totalComp };
+      return { ...lang, cx, cy, valX, valY, totalComp, totalLevels };
     });
 
     const webLinePath = Array.from({ length: 4 }, (_, step) => {
@@ -588,7 +599,7 @@ const ProfilePage = () => {
               fontWeight="bold"
               className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none font-mono"
             >
-              {v.totalComp}/100 XP
+              {v.totalComp}/{v.totalLevels} LEVELS
             </text>
           </g>
         ))}
@@ -889,12 +900,15 @@ const ProfilePage = () => {
                         {isEditing ? (
                           <div className="space-y-3.5 text-left">
                             <div>
-                              <label className="text-white/50 text-2xs uppercase">FULL NAME</label>
+                              <label htmlFor="profile-full-name" className="text-white/50 text-2xs uppercase">FULL NAME</label>
                               <input
+                                id="profile-full-name"
                                 type="text"
                                 value={tempFullName}
                                 onChange={(e) => setTempFullName(e.target.value)}
                                 placeholder="Enter Name..."
+                                maxLength={80}
+                                autoComplete="name"
                                 className="w-full text-white bg-black/50 rounded-lg px-4 py-2 border mt-1 focus:outline-none"
                                 style={{ borderColor: `${currentTheme.accent}50` }}
                                 disabled={!isSetupMode && nameChangeCount >= maxNameChanges}
@@ -902,14 +916,19 @@ const ProfilePage = () => {
                             </div>
                             
                             <div>
-                              <label className="text-white/50 text-2xs uppercase">USERNAME</label>
+                              <label htmlFor="profile-username" className="text-white/50 text-2xs uppercase">USERNAME</label>
                               <div className="flex items-center gap-1.5 mt-1">
                                 <span className="text-white/40">@</span>
                                 <input
+                                  id="profile-username"
                                   type="text"
                                   value={tempUsername}
                                   onChange={(e) => setTempUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
                                   placeholder="alias_key"
+                                  maxLength={24}
+                                  autoComplete="username"
+                                  autoCapitalize="none"
+                                  spellCheck={false}
                                   className="w-full text-white bg-black/50 rounded-lg px-3 py-1.5 border focus:outline-none"
                                   style={{ borderColor: `${currentTheme.accent}50` }}
                                   disabled={!isSetupMode && nameChangeCount >= maxNameChanges}
@@ -918,11 +937,12 @@ const ProfilePage = () => {
                             </div>
 
                             {isSetupMode && (
-                              <div>
-                                <label className="text-white/50 text-2xs uppercase">GENDER</label>
+                              <fieldset className="min-w-0 border-0 p-0 m-0">
+                                <legend className="text-white/50 text-2xs uppercase">GENDER</legend>
                                 <div className="flex gap-2.5 mt-1">
                                   <button
                                     type="button"
+                                    aria-pressed={tempGender === 'male'}
                                     onClick={() => setTempGender('male')}
                                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border transition-all hover:scale-102 text-xs"
                                     style={{
@@ -935,6 +955,7 @@ const ProfilePage = () => {
                                   </button>
                                   <button
                                     type="button"
+                                    aria-pressed={tempGender === 'female'}
                                     onClick={() => setTempGender('female')}
                                     className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border transition-all hover:scale-102 text-xs"
                                     style={{
@@ -946,15 +967,17 @@ const ProfilePage = () => {
                                     FEMALE
                                   </button>
                                 </div>
-                              </div>
+                              </fieldset>
                             )}
 
                             <div>
-                              <label className="text-white/50 text-2xs uppercase">BIO</label>
+                              <label htmlFor="profile-bio" className="text-white/50 text-2xs uppercase">BIO</label>
                               <textarea
+                                id="profile-bio"
                                 value={tempBio}
                                 onChange={(e) => setTempBio(e.target.value)}
                                 placeholder="Describe yourself..."
+                                maxLength={300}
                                 className="w-full text-white bg-black/50 rounded-lg px-4 py-2 border mt-1 resize-none focus:outline-none"
                                 style={{ borderColor: `${currentTheme.accent}50` }}
                                 rows={2.5}
@@ -1114,18 +1137,20 @@ const ProfilePage = () => {
                       {/* Language completion ratios */}
                       <div className="md:col-span-6 space-y-3.5 font-mono text-2xs">
                         {[
-                          { name: "HTML CORE MASTER", phases: htmlPhases, color: "#ff5252" },
-                          { name: "CSS ARCHITECTURE", phases: cssPhases, color: "#0099ff" },
-                          { name: "JAVASCRIPT MATRIX", phases: jsPhases, color: "#f7df1e" },
-                          { name: "PYTHON SCRIPTS ENGINE", phases: pythonPhases, color: "#3776ab" },
-                          { name: "JAVA COMPILER LOGIC", phases: javaPhases, color: "#f89820" },
+                          { id: 'html', name: "HTML CORE MASTER", phases: htmlPhases, color: "#ff5252" },
+                          { id: 'css', name: "CSS ARCHITECTURE", phases: cssPhases, color: "#0099ff" },
+                          { id: 'javascript', name: "JAVASCRIPT MATRIX", phases: jsPhases, color: "#f7df1e" },
+                          { id: 'python', name: "PYTHON SCRIPTS ENGINE", phases: pythonPhases, color: "#3776ab" },
+                          { id: 'java', name: "JAVA COMPILER LOGIC", phases: javaPhases, color: "#f89820" },
                         ].map((core) => {
-                          const total = core.phases.reduce((sum, p) => sum + p, 0);
+                          const completed = core.phases.reduce((sum, p) => sum + p, 0);
+                          const totalLevels = courseLevelTotals[core.id] || 0;
+                          const total = totalLevels ? Math.round((completed / totalLevels) * 100) : null;
                           return (
                             <div key={core.name} className="space-y-1">
                               <div className="flex justify-between text-white/70">
                                 <span>{core.name}</span>
-                                <span className="font-bold" style={{ color: core.color }}>{total}%</span>
+                                <span className="font-bold" style={{ color: core.color }}>{total === null ? (isLoading ? '…' : '—') : `${total}%`}</span>
                               </div>
                               <div className="w-full h-2 rounded bg-white/5 border border-white/10 p-0.5">
                                 <div 
@@ -1155,20 +1180,21 @@ const ProfilePage = () => {
                         <h3 className="font-techno text-base font-bold uppercase tracking-wider" style={{ color: currentTheme.accent }}>
                           MISSION LEVELS MATRIX
                         </h3>
-                        <p className="text-white/40 text-2xs font-mono mt-0.5">500 total system mission nodes</p>
+                        <p className="text-white/40 text-2xs font-mono mt-0.5">{totalMissionCount === null ? (isLoading ? 'Loading curriculum…' : 'Curriculum unavailable') : `${totalMissionCount} total system mission nodes`}</p>
                       </div>
                       <Flame className="w-5 h-5 animate-pulse" style={{ color: currentTheme.accent }} />
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
                       {[
-                        { name: "HTML", color: "#ff5252", phases: htmlPhases },
-                        { name: "CSS", color: "#0099ff", phases: cssPhases },
-                        { name: "JAVASCRIPT", color: "#f7df1e", phases: jsPhases },
-                        { name: "PYTHON", color: "#3776ab", phases: pythonPhases },
-                        { name: "JAVA", color: "#f89820", phases: javaPhases },
+                        { id: 'html', name: "HTML", color: "#ff5252", phases: htmlPhases },
+                        { id: 'css', name: "CSS", color: "#0099ff", phases: cssPhases },
+                        { id: 'javascript', name: "JAVASCRIPT", color: "#f7df1e", phases: jsPhases },
+                        { id: 'python', name: "PYTHON", color: "#3776ab", phases: pythonPhases },
+                        { id: 'java', name: "JAVA", color: "#f89820", phases: javaPhases },
                       ].map((course) => {
                         const sumCompleted = course.phases.reduce((sum, p) => sum + p, 0);
+                        const totalLevels = courseLevelTotals[course.id] || 0;
                         return (
                           <div 
                             key={course.name} 
@@ -1178,7 +1204,7 @@ const ProfilePage = () => {
                               {course.name}
                             </span>
                             <span className="text-white font-mono text-sm font-bold block mt-1.5">
-                              {sumCompleted}/100
+                              {sumCompleted}/{totalLevels}
                             </span>
                             <span className="text-white/30 font-mono text-3xs mt-0.5 block uppercase">
                               Nodes
@@ -1211,8 +1237,8 @@ const ProfilePage = () => {
 
                     <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1 scrollbar-thin">
                       {RANK_TIERS.map((tier) => {
-                        const isCurrent = rankPoints >= tier.min && rankPoints < tier.max;
-                        const isAchieved = rankPoints >= tier.min;
+                        const isCurrent = displayedRankPoints >= tier.min && (tier.max === null || displayedRankPoints < tier.max);
+                        const isAchieved = displayedRankPoints >= tier.min;
                         return (
                           <div 
                             key={tier.name}
@@ -1237,7 +1263,7 @@ const ProfilePage = () => {
                                 </span>
                               )}
                             </div>
-                            <span className="text-2xs text-white/50">{tier.min} - {tier.max === Infinity ? "∞" : tier.max} RP</span>
+                        <span className="text-2xs text-white/50">{tier.min} - {tier.max === null ? "∞" : tier.max} RP</span>
                           </div>
                         );
                       })}
@@ -1245,6 +1271,132 @@ const ProfilePage = () => {
                   </div>
                 </div>
               </div>
+
+              {!isViewingOther && (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 mb-6">
+                  <section className="rounded-2xl p-6 shadow-xl" style={{ background: 'rgba(8, 8, 12, 0.85)', border: `1px solid ${currentTheme.accent}25` }} aria-labelledby="profile-tournament-heading">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 id="profile-tournament-heading" className="font-techno text-base font-bold uppercase tracking-wider" style={{ color: currentTheme.accent }}>TOURNAMENT SEASON</h3>
+                        <p className="text-white/45 text-xs font-mono mt-1">{tournamentSummary?.currentSeason ? `SEASON ${tournamentSummary.currentSeason.seasonNumber}` : 'SEASON 0'} · competitive RP only</p>
+                      </div>
+                      <Trophy className="w-5 h-5 shrink-0" style={{ color: currentTheme.accent }} />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+                      {[
+                        ['RANK POINTS', tournamentSummary?.rankPoints ?? rankPoints],
+                        ['WINS', tournamentSummary?.seasonStats?.wins ?? 0],
+                        ['LOSSES', tournamentSummary?.seasonStats?.losses ?? 0],
+                        ['DRAWS', tournamentSummary?.seasonStats?.draws ?? 0],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-xl bg-white/5 p-3">
+                          <p className="text-[10px] text-white/45 font-mono">{label}</p>
+                          <p className="text-white font-techno font-bold text-lg mt-1">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 border-t border-white/10 pt-4" aria-label="Historical tournament seasons">
+                      <p className="text-[10px] text-white/45 font-mono tracking-wider">PAST SEASON RESULTS</p>
+                      {tournamentSummary?.seasonHistory?.length ? (
+                        <div className="grid sm:grid-cols-2 gap-x-5 mt-2">
+                          {tournamentSummary.seasonHistory.map((season) => (
+                            <div key={season.seasonId} className="flex items-center justify-between gap-3 py-2 border-b border-white/[.06] text-xs">
+                              <span className="text-white/65">Season {season.seasonNumber}<small className="block text-white/35 mt-0.5">{season.wins} W · {season.losses} L · {season.draws} D</small></span>
+                              <span className="text-right"><strong className="text-white">#{season.finalRank}</strong><small className="block text-white/45 mt-0.5">{season.rankPoints} RP</small></span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <p className="text-xs text-white/40 mt-2">Closed season results will be saved here.</p>}
+                    </div>
+                    <div className="mt-4 border-t border-white/10 pt-4" aria-label="Recent tournament match history">
+                      <p className="text-[10px] text-white/45 font-mono tracking-wider">RECENT RANKED BATTLES</p>
+                      {tournamentSummary?.recentMatches?.filter((match) => match.status !== 'active').length ? (
+                        <div className="mt-2">
+                          {tournamentSummary.recentMatches.filter((match) => match.status !== 'active').slice(0, 5).map((match) => {
+                            const opponent = match.players?.find((player) => !player.isYou);
+                            const playerId = match.players?.find((player) => player.isYou)?.userId;
+                            const rpChange = match.rpDeltas?.find((entry) => entry.userId === playerId)?.amount || 0;
+                            const outcome = match.result === 'win' ? 'VICTORY' : match.result === 'loss' ? 'DEFEAT' : match.result === 'draw' ? 'DRAW' : 'CANCELLED';
+                            return (
+                              <div key={match.matchId} className="flex items-center justify-between gap-3 py-2 border-b border-white/[.06] text-xs">
+                                <span className="min-w-0 text-white/70"><strong className="block">{outcome} · vs {opponent?.username || 'Opponent'}</strong><small className="block text-white/35 mt-1">{match.language} · {match.difficulty}</small></span>
+                                <span className="shrink-0 text-right"><strong className={rpChange > 0 ? 'text-emerald-200' : 'text-white/55'}>{rpChange > 0 ? `+${rpChange}` : '0'} RP</strong><small className="block text-white/35 mt-1">{match.finalizedAt ? new Date(match.finalizedAt).toLocaleDateString() : '—'}</small></span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : <p className="text-xs text-white/40 mt-2">Finalized tournament battles will appear here.</p>}
+                    </div>
+                    <button type="button" onClick={() => navigate('/tournament')} className="mt-5 rounded-lg px-4 py-2 text-xs font-bold tracking-wider text-white focus-visible:outline focus-visible:outline-2" style={{ background: currentTheme.accent }}>
+                      OPEN TOURNAMENT MODE
+                    </button>
+                  </section>
+
+                  <section className="rounded-2xl p-6 shadow-xl" style={{ background: 'rgba(8, 8, 12, 0.85)', border: `1px solid ${currentTheme.accent}25` }} aria-labelledby="profile-bughunter-heading">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 id="profile-bughunter-heading" className="font-techno text-base font-bold uppercase tracking-wider" style={{ color: currentTheme.accent }}>BUG HUNTER RECORD</h3>
+                        <p className="text-white/45 text-xs font-mono mt-1">Reward XP is separate from competitive rank.</p>
+                      </div>
+                      <Bug className="w-5 h-5 shrink-0" style={{ color: currentTheme.accent }} />
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+                      {[
+                        ['SOLVED', bugHunterSummary?.completed ?? 0],
+                        ['ATTEMPTED', bugHunterSummary?.attempted ?? 0],
+                        ['SUCCESS', `${bugHunterSummary?.successRate ?? 0}%`],
+                        ['XP EARNED', bugHunterSummary?.xpEarned ?? 0],
+                      ].map(([label, value]) => (
+                        <div key={label} className="rounded-xl bg-white/5 p-3">
+                          <p className="text-[10px] text-white/45 font-mono">{label}</p>
+                          <p className="text-white font-techno font-bold text-lg mt-1">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <button type="button" onClick={() => navigate('/bug-hunter')} className="mt-5 rounded-lg px-4 py-2 text-xs font-bold tracking-wider text-white focus-visible:outline focus-visible:outline-2" style={{ background: currentTheme.accent }}>
+                      ENTER BUG HUNTER ARENA
+                    </button>
+                  </section>
+                </div>
+              )}
+
+              {!isViewingOther && (
+                <section className="rounded-2xl p-6 shadow-xl mb-6" style={{ background: 'rgba(8, 8, 12, 0.85)', border: `1px solid ${currentTheme.accent}25` }} aria-labelledby="profile-reward-history-heading">
+                  <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2">
+                    <div>
+                      <h3 id="profile-reward-history-heading" className="font-techno text-base font-bold uppercase tracking-wider" style={{ color: currentTheme.accent }}>REWARD HISTORY</h3>
+                      <p className="text-white/45 text-xs font-mono mt-1">XP and competitive RP are tracked as separate balances.</p>
+                    </div>
+                    <span className="text-[10px] text-white/35">Older balance changes are not reconstructed into this ledger.</span>
+                  </div>
+                  <div className="grid lg:grid-cols-2 gap-5 mt-5">
+                    {[
+                      { currency: 'xp', title: 'XP TRANSACTIONS', unit: 'XP' },
+                      { currency: 'rp', title: 'RANK POINT TRANSACTIONS', unit: 'RP' },
+                    ].map(({ currency, title, unit }) => {
+                      const items = rewardHistory.filter((item) => item.currency === currency);
+                      return (
+                        <div key={currency} className="rounded-xl border border-white/10 bg-white/[.025] p-4">
+                          <h4 className="text-xs font-mono tracking-widest text-white/55">{title}</h4>
+                          {items.length ? (
+                            <ul className="mt-3 divide-y divide-white/[.07]">
+                              {items.slice(0, 8).map((item) => (
+                                <li key={`${currency}-${item._id}`} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                                  <div className="min-w-0">
+                                    <p className="text-white/80 capitalize">{String(item.source).replaceAll('-', ' ')}{item.relatedId ? <span className="text-white/35"> · {item.relatedId}</span> : ''}</p>
+                                    <time className="text-white/35" dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time>
+                                  </div>
+                                  <div className="text-right shrink-0"><p className={`font-mono font-bold ${item.amount >= 0 ? 'text-emerald-200' : 'text-rose-200'}`}>{item.amount > 0 ? '+' : ''}{item.amount} {unit}</p><p className="text-white/35">Balance {item.balanceAfter}</p></div>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : <p className="text-xs text-white/35 mt-3">No {unit} transactions have been recorded in the new ledger yet.</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
 
               {/* BOTTOM SECTION: AI Boss Arena Records */}
               <div 

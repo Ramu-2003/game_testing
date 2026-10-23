@@ -17,6 +17,9 @@ const GenericPlayLevelPage = lazy(() => import('./pages/GenericPlayLevelPage'));
 const SpecialsModePage = lazy(() => import('./pages/SpecialsModePage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const StorePage = lazy(() => import('./pages/StorePage'));
+const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+const TournamentPage = lazy(() => import('./pages/TournamentPage'));
+const BugHunterPage = lazy(() => import('./pages/BugHunterPage'));
 const ComputerModePage = lazy(() => import('./pages/ComputerModePage'));
 const ComputerModeRoomCreationPage = lazy(() => import('./pages/ComputerModeRoomCreationPage'));
 const LobbyPage = lazy(() => import('./pages/LobbyPage'));
@@ -30,6 +33,7 @@ const CustomModeJoinPage = lazy(() => import('./pages/CustomModeJoinPage'));
 const CustomModeLobbyPage = lazy(() => import('./pages/CustomModeLobbyPage'));
 const CustomModeGamePage = lazy(() => import('./pages/CustomModeGamePage'));
 const CustomModeResultsPage = lazy(() => import('./pages/CustomModeResultsPage'));
+const LearnPage = lazy(() => import('./pages/LearnPage'));
 
 // Lightweight loading spinner shown during lazy-load
 const PageLoader = () => (
@@ -62,6 +66,7 @@ function App() {
     <Router>
       <Suspense fallback={<PageLoader />}>
         <Routes>
+          <Route path="/learn" element={<LearnPage />} />
           {/* Auth Flow */}
           <Route path="/" element={<AuthFlow />} />
           <Route path="/reset-password/:token" element={<ResetPassword />} />
@@ -75,6 +80,9 @@ function App() {
           <Route path="/specials-mode" element={<ProtectedRoute><SpecialsModePage /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/store" element={<ProtectedRoute><StorePage /></ProtectedRoute>} />
+          <Route path="/leaderboard" element={<ProtectedRoute><LeaderboardPage /></ProtectedRoute>} />
+          <Route path="/tournament" element={<ProtectedRoute><TournamentPage /></ProtectedRoute>} />
+          <Route path="/bug-hunter" element={<ProtectedRoute><BugHunterPage /></ProtectedRoute>} />
           <Route path="/computer-mode" element={<ProtectedRoute><ComputerModePage /></ProtectedRoute>} />
           <Route path="/computer-mode/create-room" element={<ProtectedRoute><ComputerModeRoomCreationPage /></ProtectedRoute>} />
           <Route path="/computer-mode/join-room" element={<ProtectedRoute><JoinRoomPage /></ProtectedRoute>} />

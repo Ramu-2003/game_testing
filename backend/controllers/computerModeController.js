@@ -1,5 +1,6 @@
 // In-memory storage for rooms (in production, use Redis or MongoDB)
 const rooms = new Map();
+const { ROOM_CREATION_COST, chargeRoomCreation, refundRoomCreation } = require('../utils/roomCreationCharge');
 
 // Generate random room ID
 const generateRoomId = () => {
@@ -13,11 +14,31 @@ const generatePassword = () => {
 
 // Create a new room
 exports.createRoom = async (req, res) => {
+  let charged = false;
+  let roomId;
   try {
     const { roomTime, playerMode, rounds, language, difficulty, bot } = req.body;
     const userId = req.user.id;
 
-    const roomId = generateRoomId();
+    if (!Number.isInteger(playerMode) || playerMode < 1 || playerMode > 4
+        || !Number.isInteger(roomTime) || roomTime < 3 || roomTime > 8
+        || !Number.isInteger(rounds) || rounds < 1 || rounds > 5
+        || !['HTML', 'CSS', 'JavaScript', 'Python', 'Java'].includes(language)
+        || !['Beginner', 'Moderate', 'Advanced'].includes(difficulty)) {
+      return res.status(400).json({ message: 'Invalid room settings.' });
+    }
+
+    const charge = await chargeRoomCreation(userId);
+    if (!charge.success) {
+      return res.status(402).json({
+        success: false,
+        code: charge.reason,
+        message: `Creating a room costs ${ROOM_CREATION_COST} G-THUNDER. You need at least ${ROOM_CREATION_COST} available.`,
+      });
+    }
+    charged = true;
+
+    roomId = generateRoomId();
     const password = generatePassword();
 
     const room = {
@@ -40,7 +61,8 @@ exports.createRoom = async (req, res) => {
         progress: 0
       }],
       status: 'waiting', // waiting, playing, finished
-      createdAt: new Date()
+      createdAt: new Date(),
+      roomCreationFee: ROOM_CREATION_COST,
     };
 
     rooms.set(roomId, room);
@@ -49,9 +71,17 @@ exports.createRoom = async (req, res) => {
       success: true,
       roomId,
       password,
-      room
+      room,
+      charged: true,
+      chargedAmount: ROOM_CREATION_COST,
+      gThunderBalance: charge.balance,
     });
   } catch (error) {
+    if (roomId) rooms.delete(roomId);
+    if (charged) {
+      try { await refundRoomCreation(req.user.id); }
+      catch (refundError) { console.error('Room creation fee refund failed:', refundError); }
+    }
     console.error('Create room error:', error);
     res.status(500).json({ message: 'Error creating room' });
   }

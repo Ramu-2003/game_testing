@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Trophy, Repeat, Home, Clock, Target, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import { Repeat, Home, Clock, Target, Zap, ChevronDown, ChevronUp } from 'lucide-react';
 import { Navbar } from '../components/Navbar';
 import { CustomCursor } from '../components/landing/CustomCursor';
-import { profileAPI } from '../utils/api';
 
 const THEMES = {
   red:    { accent: '#ff5252', ui: '#ff6b6b', bg: '#0d0305' },
@@ -33,11 +32,11 @@ const fmtSec = s => {
 };
 
 /* Confetti particle */
-const Particle = ({ color, x, delay, size }) => (
+const Particle = ({ color, x, delay, size, id }) => (
   <div style={{
     position: 'fixed', left: `${x}%`, bottom: '-20px',
     width: size, height: size,
-    background: color, borderRadius: Math.random() > 0.5 ? '50%' : '2px',
+    background: color, borderRadius: id % 2 === 0 ? '50%' : '2px',
     animation: `particleFloat 4s ${delay}s ease-in infinite`,
     opacity: 0.7, pointerEvents: 'none', zIndex: 1,
   }} />
@@ -85,12 +84,12 @@ const ComputerModeResultsPage = () => {
   const headingColor = playerWon ? '#10b981' : competitorWon ? '#a855f7' : isDraw ? '#f59e0b' : '#ef4444';
   const bigEmoji     = playerWon ? '🏆' : competitorWon ? '👾' : isDraw ? '🤝' : '💀';
   const subText      = playerWon
-    ? 'You outpaced the AI bots with superior code! The System declares you WINNER!'
+    ? 'You passed the challenge requirements before the simulated bot opponents. The System declares you WINNER!'
     : competitorWon
-    ? 'Your teammate crushed the AI! Outstanding team performance!'
+    ? 'Your teammate passed the challenge requirements before the simulated bot opponents. Outstanding team performance!'
     : isDraw
-    ? 'You and the AI bots tied it out. An honorable result!'
-    : 'The AI bots were faster this time. Train harder and return!';
+    ? 'You and the simulated bot opponents finished together. An honorable result!'
+    : 'The simulated bot opponents completed the challenge first. Train harder and return!';
 
   const particleColors = ['#a855f7','#3b82f6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4'];
   const particles = Array.from({ length: (playerWon||isDraw) ? 40 : 0 }, (_,i) => ({
@@ -102,44 +101,22 @@ const ComputerModeResultsPage = () => {
   const [displayPlayer, setDisplayPlayer] = useState(0);
   const [displayAi, setDisplayAi]         = useState(0);
   const [phase, setPhase]                 = useState(0);
-  const [saveStatus, setSaveStatus]       = useState('idle');
-  const [saveError, setSaveError]         = useState('');
   const [breakdownOpen, setBreakdownOpen] = useState(false);
 
   useEffect(() => {
     const t1 = setTimeout(() => setPhase(1), 400);
+    let scoreInterval;
     const t2 = setTimeout(() => {
       let p = 0, a = 0;
-      const iv = setInterval(() => {
+      scoreInterval = setInterval(() => {
         if (p < scores.player) { p++; setDisplayPlayer(p); }
         if (a < scores.ai)     { a++; setDisplayAi(a); }
-        if (p >= scores.player && a >= scores.ai) clearInterval(iv);
+        if (p >= scores.player && a >= scores.ai) clearInterval(scoreInterval);
       }, 160);
     }, 700);
     const t3 = setTimeout(() => setPhase(2), 1000);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, []);
-
-  const submittedRef = useRef(false);
-  useEffect(() => {
-    if (submittedRef.current) return;
-    submittedRef.current = true;
-    const save = async () => {
-      setSaveStatus('saving');
-      try {
-        const outcome = playerWon||competitorWon ? 'player_win' : aiWon ? 'ai_win' : 'draw';
-        for (const bot of botsUsed) {
-          await profileAPI.submitComputerGameResult({ botName: bot.name||'Logic Bot', outcome });
-        }
-        setSaveStatus('saved');
-      } catch (err) {
-        setSaveStatus('error');
-        setSaveError(err?.message || 'Could not save results');
-      }
-    };
-    if (botsUsed.length > 0) save();
-    else { setSaveStatus('error'); setSaveError('No bot data found'); }
-  }, []);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearInterval(scoreInterval); };
+  }, [scores.ai, scores.player]);
 
   const showFade = (delay = 0) => ({
     opacity: phase >= 2 ? 1 : 0,
@@ -230,26 +207,8 @@ const ComputerModeResultsPage = () => {
             {subText}
           </p>
 
-          {/* Save status */}
-          <div style={{ height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            {saveStatus === 'saving' && (
-              <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', animation: 'pulse 1s infinite' }} />
-                SYNCING TO PROFILE...
-              </div>
-            )}
-            {saveStatus === 'saved' && (
-              <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981' }} />
-                MATCH SAVED TO PROFILE ✓
-              </div>
-            )}
-            {saveStatus === 'error' && (
-              <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#ef4444', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
-                SYNC ERROR: {saveError}
-              </div>
-            )}
+          <div style={{ minHeight: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontFamily: 'monospace', fontSize: 12, color: 'rgba(255,255,255,0.55)' }}>
+            MATCH RESULT: LOCAL ONLY · PROFILE REWARDS REQUIRE SERVER VERIFICATION
           </div>
 
           {/* Match metadata chips */}
@@ -286,11 +245,11 @@ const ComputerModeResultsPage = () => {
                 : <div style={{ width: 52, height: 52, borderRadius: '50%', background: `${ac}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 20, color: ac, border: `3px solid 90` }}>{username[0]}</div>
               }
             </div>
-            <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>{username}</div>
+            <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>{username}</div>
             <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 80, color: ac, lineHeight: 1, textShadow: `0 0 40px 90` }}>{displayPlayer}</div>
             <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>rounds won</div>
             {playerWon && (
-              <div style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, color: '#10b981' }}>
+              <div style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.3)', fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: '#10b981' }}>
                 🏆 CHAMPION
               </div>
             )}
@@ -314,11 +273,11 @@ const ComputerModeResultsPage = () => {
                 : <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(239,68,68,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto', fontSize: 24, border: '3px solid rgba(239,68,68,0.3)' }}>🤖</div>
               }
             </div>
-            <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>AI BOTS</div>
+            <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 2, marginBottom: 12 }}>AI BOTS</div>
             <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 80, color: '#f97316', lineHeight: 1, textShadow: '0 0 40px rgba(249,115,22,0.5)' }}>{displayAi}</div>
             <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)', marginTop: 4 }}>rounds won</div>
             {aiWon && (
-              <div style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, color: '#ef4444' }}>
+              <div style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: '#ef4444' }}>
                 💀 DOMINANT
               </div>
             )}
@@ -346,11 +305,11 @@ const ComputerModeResultsPage = () => {
                   }}>
                     {/* Player */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: 160, flexShrink: 0 }}>
-                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${ac}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 16, fontWeight: 700, color: ac, border: `2px solid 90` }}>
+                      <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${ac}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: ac, border: `2px solid 90` }}>
                         {pr.username[0]}
                       </div>
                       <div>
-                        <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, color: isMe ? ac : 'white' }}>
+                        <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: isMe ? ac : 'white' }}>
                           {pr.username} {isMe && <span style={{ fontSize: 16, fontWeight: 700, opacity: 0.6 }}>(YOU)</span>}
                         </div>
                         <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
@@ -369,7 +328,7 @@ const ComputerModeResultsPage = () => {
                           <img src={BOT_CONFIGS[bot.name].image} alt={bot.name} style={{ width: 28, height: 28, borderRadius: '50%', border: `1.5px solid ${botCfg.color}`, objectFit: 'cover', background: '#111' }} />
                         )}
                         <div>
-                          <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: botCfg.color }}>{bot.name}</div>
+                          <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: botCfg.color }}>{bot.name}</div>
                           <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, padding: '0 5px', borderRadius: 3, background: `${botCfg.color}20`, color: botCfg.color, display: 'inline-block' }}>{botCfg.tag}</div>
                         </div>
                       </div>
@@ -379,7 +338,7 @@ const ComputerModeResultsPage = () => {
                     <div style={{
                       padding: '6px 14px', borderRadius: 20, flexShrink: 0,
                       background: `${ol.color}15`, border: `1px solid ${ol.color}40`,
-                      fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 16, fontWeight: 700,
+                      fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700,
                       color: ol.color, letterSpacing: 1, display: 'flex', alignItems: 'center', gap: 5,
                     }}>
                       {ol.icon} {ol.text}
@@ -451,8 +410,8 @@ const ComputerModeResultsPage = () => {
                     {cfg.image && <img src={cfg.image} alt={bot.name} style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${cfg.color}40`, background: '#111', flexShrink: 0 }} />}
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, color: cfg.color }}>{bot.name}</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, padding: '1px 6px', borderRadius: 3, background: `${cfg.color}20`, color: cfg.color, fontWeight: 700 }}>{cfg.tag}</span>
+                        <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: cfg.color }}>{bot.name}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 15,  padding: '1px 6px', borderRadius: 3, background: `${cfg.color}20`, color: cfg.color, fontWeight: 700 }}>{cfg.tag}</span>
                       </div>
                       <div style={{ height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${bot.progress||0}%`, background: cfg.color, borderRadius: 2, boxShadow: `0 0 6px ${cfg.color}60`, transition: 'width 1.5s ease' }} />
@@ -506,14 +465,14 @@ const ComputerModeResultsPage = () => {
                       {Array.from({ length: totalRounds }, (_, rIdx) => (
                         playerMode === 1 ? (
                           <tr key={rIdx} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                            <td style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: ac, padding: '8px 10px', fontWeight: 700 }}>Round {rIdx + 1}</td>
-                            <td style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: 'white', padding: '8px 10px' }}>{username}</td>
-                            <td style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: BOT_CONFIGS[botsUsed[0]?.name]?.color || '#f97316', padding: '8px 10px' }}>
+                            <td style={{ fontFamily: 'monospace', fontSize: 15,  color: ac, padding: '8px 10px', fontWeight: 700 }}>Round {rIdx + 1}</td>
+                            <td style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'white', padding: '8px 10px' }}>{username}</td>
+                            <td style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: BOT_CONFIGS[botsUsed[0]?.name]?.color || '#f97316', padding: '8px 10px' }}>
                               {botsUsed[0]?.name || 'Bot'}
                             </td>
                             <td style={{ textAlign: 'center', padding: '8px 10px' }}>
                               <span style={{
-                                padding: '3px 10px', borderRadius: 20, fontSize: 15, fontWeight: 700,
+                                padding: '3px 10px', borderRadius: 20, fontSize: 15,
                                 fontFamily: 'monospace', fontWeight: 700,
                                 background: rIdx === 0 && playerWon ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)',
                                 color: rIdx === 0 && playerWon ? '#10b981' : '#ef4444',
@@ -525,16 +484,16 @@ const ComputerModeResultsPage = () => {
                         ) : (
                           players.map((p, pIdx) => (
                             <tr key={`${rIdx}-${pIdx}`} style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                              <td style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: ac, padding: '8px 10px', fontWeight: 700 }}>{pIdx === 0 ? `Round ${rIdx + 1}` : ''}</td>
-                              <td style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: p.username === username ? ac : 'white', padding: '8px 10px' }}>
+                              <td style={{ fontFamily: 'monospace', fontSize: 15,  color: ac, padding: '8px 10px', fontWeight: 700 }}>{pIdx === 0 ? `Round ${rIdx + 1}` : ''}</td>
+                              <td style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: p.username === username ? ac : 'white', padding: '8px 10px' }}>
                                 {p.username} {p.username === username ? '(YOU)' : ''}
                               </td>
-                              <td style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: BOT_CONFIGS[botsUsed[pIdx]?.name]?.color || '#f97316', padding: '8px 10px' }}>
+                              <td style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: BOT_CONFIGS[botsUsed[pIdx]?.name]?.color || '#f97316', padding: '8px 10px' }}>
                                 {botsUsed[pIdx]?.name || `Bot ${pIdx + 1}`}
                               </td>
                               <td style={{ textAlign: 'center', padding: '8px 10px' }}>
                                 <span style={{
-                                  padding: '3px 10px', borderRadius: 20, fontSize: 16, fontWeight: 700,
+                                  padding: '3px 10px', borderRadius: 20, fontSize: 16,
                                   fontFamily: 'monospace', fontWeight: 700,
                                   background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.7)',
                                 }}>

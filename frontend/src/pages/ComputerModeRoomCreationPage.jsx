@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, ChevronLeft, Cpu, Crown, RefreshCw, AlertTriangle, CheckCircle2, Gamepad2, Settings, Zap, Rocket, ChevronRight } from 'lucide-react';
+import { ChevronLeft, Cpu, RefreshCw, AlertTriangle, CheckCircle2, Zap, Rocket, ChevronRight } from 'lucide-react';
 import { PremiumIcon } from '../components/landing/PremiumIcon';
 import { Navbar } from '../components/Navbar';
 import { CustomCursor } from '../components/landing/CustomCursor';
@@ -231,7 +231,7 @@ const ComputerModeRoomCreationPage = () => {
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
             borderRadius: 8, border: `1.5px solid ${ac}80`, background: `${ac}10`,
             color: ac, cursor: 'pointer', fontFamily: 'Rajdhani, sans-serif',
-            fontWeight: 700, fontSize: 15, fontWeight: 700, transition: 'all 0.2s',
+             fontSize: 15, fontWeight: 700, transition: 'all 0.2s',
           }}
           onMouseEnter={e => e.currentTarget.style.background = `${ac}25`}
           onMouseLeave={e => e.currentTarget.style.background = `${ac}10`}
@@ -305,7 +305,7 @@ const ComputerModeRoomCreationPage = () => {
                 <div style={{
                   marginLeft: 'auto', padding: '4px 12px', borderRadius: 20,
                   background: `${diffInfo.color}20`, border: `1px solid ${diffInfo.color}40`,
-                  fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: diffInfo.color, fontWeight: 700,
+                  fontFamily: 'monospace', fontSize: 15,  color: diffInfo.color, fontWeight: 700,
                 }}>
                   {diffInfo.tests} TESTS
                 </div>
@@ -327,7 +327,7 @@ const ComputerModeRoomCreationPage = () => {
                       <div style={{ fontSize: 20, marginBottom: 4, filter: isSel ? `drop-shadow(0 0 10px ${l.color}80)` : 'none', opacity: isSel ? 1 : 0.4, transition: 'all 0.3s' }}>
                         <PremiumIcon name={l.iconName} size={32} />
                       </div>
-                      <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 15, fontWeight: 700,
+                      <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700,
                         color: isSel ? l.color : 'rgba(255,255,255,0.8)' }}>{l.value}</div>
                     </div>
                   );
@@ -351,7 +351,7 @@ const ComputerModeRoomCreationPage = () => {
                       ...selStyle(config.botMode === opt.val, ac),
                       flex: 1, padding: '12px', textAlign: 'center',
                     }}>
-                    <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700,
+                    <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700,
                       color: config.botMode === opt.val ? ac : 'rgba(255,255,255,0.6)' }}>{opt.label}</div>
                     <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)', marginTop: 2 }}>{opt.desc}</div>
                   </div>
@@ -366,7 +366,7 @@ const ComputerModeRoomCreationPage = () => {
                       padding: '6px 14px', borderRadius: 8, border: 'none',
                       background: activeBotSlot === i ? ac : 'rgba(255,255,255,0.05)',
                       color: activeBotSlot === i ? 'white' : 'rgba(255,255,255,0.7)',
-                      fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700,
+                      fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700,
                       cursor: 'pointer', transition: 'all 0.2s', textTransform: 'uppercase',
                     }}>
                       Player {i + 1}
@@ -397,9 +397,9 @@ const ComputerModeRoomCreationPage = () => {
                       }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700,
+                          <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700,
                             color: isSelectedForSlot ? bot.color : 'white' }}>{bot.name}</span>
-                          <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, padding: '1px 6px',
+                          <span style={{ fontFamily: 'monospace', fontSize: 15,  padding: '1px 6px',
                             borderRadius: 3, background: bot.tagColor + '25', color: bot.tagColor, fontWeight: 700 }}>{bot.tag}</span>
                           {assignedToSlots.length > 0 && (
                             <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
@@ -425,7 +425,7 @@ const ComputerModeRoomCreationPage = () => {
                 <button onClick={randomizeAllBots} style={{
                   marginTop: 10, width: '100%', padding: '10px', borderRadius: 8,
                   background: `${ac}15`, color: ac, cursor: 'pointer',
-                  fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700,
+                  fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                   border: `1px solid 70`, transition: 'all 0.2s',
                 }}>
@@ -470,7 +470,7 @@ const ComputerModeRoomCreationPage = () => {
                   }}>
                     <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.65)',
                       textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 15, fontWeight: 700, color: 'white' }}>{value}</div>
+                    <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: 'white' }}>{value}</div>
                   </div>
                 ))}
               </div>
@@ -482,7 +482,7 @@ const ComputerModeRoomCreationPage = () => {
                 display: 'flex', alignItems: 'center', gap: 8,
               }}>
                 <span style={{ display: 'flex', alignItems: 'center' }}><PremiumIcon name={diffInfo.iconName} size={20} color={diffInfo.color} /></span>
-                <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, color: diffInfo.color, letterSpacing: 1 }}>
+                <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: diffInfo.color, letterSpacing: 1 }}>
                   {diffInfo.label}
                 </span>
                 <span style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.7)', marginLeft: 'auto' }}>
@@ -502,7 +502,7 @@ const ComputerModeRoomCreationPage = () => {
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.65)', width: 60 }}>P{i + 1} vs</div>
                         <img src={bot.image} alt={bot.name} style={{ width: 22, height: 22, borderRadius: '50%', border: `1.5px solid ${bot.color}`, objectFit: 'cover', background: '#111' }} />
-                        <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 15, fontWeight: 700, color: bot.color }}>{bot.name}</span>
+                        <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: bot.color }}>{bot.name}</span>
                         <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, padding: '1px 5px', borderRadius: 3, background: `${bot.color}20`, color: bot.color, marginLeft: 'auto' }}>{bot.tag}</span>
                       </div>
                     );
@@ -537,6 +537,12 @@ const ComputerModeRoomCreationPage = () => {
               </div>
 
               {/* Enter Arena Button */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 12px', marginBottom: 12, borderRadius: 9, background: `${ac}12`, border: `1px solid ${ac}35` }}>
+                <Zap size={16} style={{ color: ac, flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'rgba(255,255,255,0.78)', lineHeight: 1.5 }}>
+                  <strong style={{ color: ac }}>ROOM FEE: 1 G-THUNDER.</strong> The creator is charged when the room is created; joining is free. No refund if you leave or do not play.
+                </div>
+              </div>
               <button onClick={handleEnterArena} disabled={isCreating} style={{
                 width: '100%', padding: '16px 0', borderRadius: 12, border: 'none',
                 background: isCreating ? 'rgba(255,255,255,0.08)' : `linear-gradient(135deg, ${ac}, ${ui})`,
@@ -551,19 +557,15 @@ const ComputerModeRoomCreationPage = () => {
                   <>
                     <div style={{ width: 18, height: 18, border: '3px solid rgba(255,255,255,0.6)',
                       borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                    CREATING BATTLE...
+                    CREATING ROOM...
                   </>
                 ) : (
                   <>
-                    <Rocket size={18} /> ENTER ARENA <ChevronRight size={18} />
+                    <Rocket size={18} /> CREATE ROOM <ChevronRight size={18} />
                   </>
                 )}
               </button>
 
-              <div style={{ textAlign: 'center', marginTop: 10, fontFamily: 'monospace',
-                fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)', letterSpacing: 1 }}>
-                {config.playerMode === 1 ? 'No room ID needed for Solo mode' : 'Room ID generated on creation'}
-              </div>
             </div>
           </div>
         </div>

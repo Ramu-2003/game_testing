@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Lock, Clock, CheckSquare, Gamepad2, Play, Check } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Lock, Gamepad2, Play, Check } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { CustomCursor } from "../components/landing/CustomCursor";
 import { levelsAPI } from "../utils/api";
-import { levelsRegistry } from "../config/levelsRegistry";
+import { loadCoursePhase } from "../config/curriculumLoader";
+import { clearPhaseChallengeTimers } from "../utils/challengeTimer";
+import curriculumLimits from "../config/curriculumLimits";
 
 const PAGE_BG = {
   red: "#0d0202",
@@ -23,10 +25,17 @@ export const GenericPhaseLevelsPage = () => {
 
   const [completedLevels, setCompletedLevels] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCurriculumLoading, setIsCurriculumLoading] = useState(true);
+  const [phaseLevelsData, setPhaseLevelsData] = useState({});
+  const [loadedCurriculumKey, setLoadedCurriculumKey] = useState(null);
   const [selectedLevelNum, setSelectedLevelNum] = useState(1);
 
   const phaseNum = Number(phaseId?.replace("phase", "") || "1");
-  const TOTAL_LEVELS = 10;
+  const curriculumKey = `${courseId}:${phaseNum}`;
+  const TOTAL_LEVELS = Math.min(
+    curriculumLimits.maxLevelsPerPhase,
+    Object.keys(phaseLevelsData).length || 10,
+  );
 
   // Themes mapping
   const themes = {
@@ -63,11 +72,7 @@ export const GenericPhaseLevelsPage = () => {
   const currentTheme = themes[themeKey] || themes.purple;
   const pageBg = PAGE_BG[themeKey] || PAGE_BG.purple;
 
-  useEffect(() => {
-    fetchProgress();
-  }, [courseId, phaseId]);
-
-  const fetchProgress = async () => {
+  const fetchProgress = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await levelsAPI.getProgress();
@@ -97,7 +102,32 @@ export const GenericPhaseLevelsPage = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [courseId, phaseNum, TOTAL_LEVELS]);
+
+  useEffect(() => {
+    clearPhaseChallengeTimers(courseId, phaseNum);
+    let active = true;
+    setIsCurriculumLoading(true);
+    loadCoursePhase(courseId, phaseNum)
+      .then((levels) => {
+        if (active) {
+          setPhaseLevelsData(levels || {});
+          setLoadedCurriculumKey(curriculumKey);
+        }
+      })
+      .catch((error) => {
+        console.error('Unable to load course lessons:', error);
+        if (active) {
+          setPhaseLevelsData({});
+          setLoadedCurriculumKey(curriculumKey);
+        }
+      })
+      .finally(() => {
+        if (active) setIsCurriculumLoading(false);
+      });
+    fetchProgress();
+    return () => { active = false; };
+  }, [courseId, phaseNum, curriculumKey, fetchProgress]);
 
   const isLevelUnlocked = (levelNum) => {
     if (levelNum === 1) return true;
@@ -114,7 +144,7 @@ export const GenericPhaseLevelsPage = () => {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || isCurriculumLoading || loadedCurriculumKey !== curriculumKey) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-950">
         <div className="text-center">
@@ -129,7 +159,9 @@ export const GenericPhaseLevelsPage = () => {
   }
 
   // Load level definitions from registry
-  const phaseLevelsData = levelsRegistry[courseId]?.[phaseNum] || {};
+  if (!Object.keys(phaseLevelsData).length) {
+    return <Navigate to="/levels-mode" replace />;
+  }
   const selectedLevel = phaseLevelsData[selectedLevelNum] || {
     title: `Level ${selectedLevelNum}`,
     description: "No challenge description provided.",
@@ -137,7 +169,7 @@ export const GenericPhaseLevelsPage = () => {
     testCases: []
   };
 
-  const completedCount = completedLevels.filter((l) => l <= TOTAL_LEVELS).length;
+  const completedCount = new Set(completedLevels.filter((l) => l <= TOTAL_LEVELS)).size;
   const progressPercent = Math.round((completedCount / TOTAL_LEVELS) * 100);
 
   // SVG Circular progress details
@@ -145,8 +177,9 @@ export const GenericPhaseLevelsPage = () => {
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - (progressPercent / 100) * circumference;
 
-  // Level node layout coordinates (S-Curve mapping in a 900x400 container)
-  const nodePositions = [
+  // Preserve the original S-curve for the current ten-stage phases. Larger
+  // phases use a scrollable, keyboard-friendly serpentine map.
+  const compactNodePositions = [
     { x: 80, y: 320 },   // L1
     { x: 190, y: 220 },  // L2
     { x: 300, y: 150 },  // L3
@@ -158,6 +191,17 @@ export const GenericPhaseLevelsPage = () => {
     { x: 500, y: 100 },  // L9
     { x: 380, y: 60 }    // L10
   ];
+  const mapColumns = 10;
+  const mapRows = Math.ceil(TOTAL_LEVELS / mapColumns);
+  const mapWidth = TOTAL_LEVELS <= 10 ? 850 : 1000;
+  const mapHeight = TOTAL_LEVELS <= 10 ? 380 : Math.max(380, mapRows * 96 + 60);
+  const nodePositions = Array.from({ length: TOTAL_LEVELS }, (_, index) => {
+    if (TOTAL_LEVELS <= 10) return compactNodePositions[index];
+    const row = Math.floor(index / mapColumns);
+    const offset = index % mapColumns;
+    const column = row % 2 === 0 ? offset : mapColumns - offset - 1;
+    return { x: 50 + column * 96, y: 50 + row * 96 };
+  });
 
   return (
     <div
@@ -287,9 +331,10 @@ export const GenericPhaseLevelsPage = () => {
             </div>
           </div>
 
-          <div className="flex-1 relative flex items-center justify-center overflow-auto p-4 select-none">
+          <div className="flex-1 relative overflow-auto p-4 select-none">
+            <div className="relative mx-auto shrink-0" style={{ width: `${mapWidth}px`, height: `${mapHeight}px` }}>
             {/* Connection Wires Drawing Container */}
-            <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ minWidth: "850px", minHeight: "380px" }}>
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${mapWidth} ${mapHeight}`} aria-hidden="true">
               <defs>
                 {/* Neon Glow filters */}
                 <filter id="neon-glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -367,7 +412,7 @@ export const GenericPhaseLevelsPage = () => {
             </svg>
 
             {/* Level Nodes Mapping */}
-            <div className="absolute inset-0" style={{ minWidth: "850px", minHeight: "380px" }}>
+            <div className="absolute inset-0">
               {Array.from({ length: TOTAL_LEVELS }, (_, i) => i + 1).map((lvlNum) => {
                 const pos = nodePositions[lvlNum - 1];
                 const unlocked = isLevelUnlocked(lvlNum);
@@ -388,10 +433,14 @@ export const GenericPhaseLevelsPage = () => {
                 }
 
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={lvlNum}
-                    onClick={() => unlocked && setSelectedLevelNum(lvlNum)}
-                    className={`absolute flex items-center justify-center w-12 h-12 rounded-full border transition-all duration-300 z-10 ${nodeBg} ${hoverStyle} ${
+                    aria-label={`Stage ${lvlNum}, ${completed ? 'completed' : unlocked ? 'available' : 'locked'}`}
+                    aria-current={isSelected ? 'true' : undefined}
+                    disabled={!unlocked}
+                    onClick={() => setSelectedLevelNum(lvlNum)}
+                    className={`absolute flex items-center justify-center w-12 h-12 rounded-full border p-0 transition-all duration-300 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 ${nodeBg} ${hoverStyle} ${
                       isSelected ? `${currentTheme.nodeGlow} scale-110` : ""
                     }`}
                     style={{
@@ -414,9 +463,10 @@ export const GenericPhaseLevelsPage = () => {
                     {unlocked && !completed && !isSelected && (
                       <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full animate-ping" style={{ backgroundColor: currentTheme.accent, opacity: 0.7 }} />
                     )}
-                  </div>
+                  </button>
                 );
               })}
+            </div>
             </div>
           </div>
         </div>

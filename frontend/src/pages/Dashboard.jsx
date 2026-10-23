@@ -1,7 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
-import { PrismThemeToggle } from '../components/landing/PrismThemeToggle';
 import { SpaceHeroScene } from '../components/landing/SpaceHeroScene';
 import { DiscoverFeatures } from '../components/landing/DiscoverFeatures';
 import { Rules } from '../components/landing/Rules';
@@ -14,7 +12,6 @@ import { Welcome } from '../components/landing/Welcome';
 import { CustomCursor } from '../components/landing/CustomCursor';
 import { Footer } from '../components/landing/Footer';
 import { GlobalParticleScene } from '../components/landing/GlobalParticleScene';
-import { profileAPI, pointsAPI } from '../utils/api';
 
 const themes = {
   red: {
@@ -53,54 +50,8 @@ const Dashboard = () => {
     localStorage.setItem('themeKey', themeKey);
   }, [themeKey]);
 
-  const [profileImage, setProfileImage] = useState(null);
-  const [xpPoints, setXpPoints] = useState(0);
-  const [gThunderPoints, setGThunderPoints] = useState(0);
   const [particlesVisible, setParticlesVisible] = useState(false);
   const currentTheme = useMemo(() => themes[themeKey], [themeKey]);
-  const navigate = useNavigate();
-
-  // Load profile image and points from API
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [profileResponse, pointsResponse] = await Promise.all([
-          profileAPI.getProfile(),
-          pointsAPI.getInfo()
-        ]);
-        
-        const userData = profileResponse.data.user;
-        
-        // Only show image if profile is complete
-        if (userData.profileSetupComplete && userData.profileImage) {
-          setProfileImage(userData.profileImage);
-        } else {
-          setProfileImage(null); // Show default icon for incomplete profiles
-        }
-
-        // Set XP and G-THUNDER points
-        setXpPoints(pointsResponse.data.xpPoints || 0);
-        setGThunderPoints(pointsResponse.data.gThunderPoints || 0);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      }
-    };
-
-    fetchData();
-    
-    // Listen for profile and points updates
-    const handleDataUpdate = () => {
-      fetchData();
-    };
-    
-    window.addEventListener('profileUpdated', handleDataUpdate);
-    window.addEventListener('pointsUpdated', handleDataUpdate);
-    
-    return () => {
-      window.removeEventListener('profileUpdated', handleDataUpdate);
-      window.removeEventListener('pointsUpdated', handleDataUpdate);
-    };
-  }, []);
 
   // Show global particles only once user has scrolled past the hero section
   useEffect(() => {
@@ -116,11 +67,6 @@ const Dashboard = () => {
     return () => observer.disconnect();
   }, []);
 
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    navigate('/');
-  };
 
   return (
     <>

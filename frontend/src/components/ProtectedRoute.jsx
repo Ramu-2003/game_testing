@@ -1,5 +1,6 @@
 import { Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
+import PropTypes from 'prop-types';
 import { profileAPI } from '../utils/api';
 
 const ProtectedRoute = ({ children }) => {
@@ -21,9 +22,13 @@ const ProtectedRoute = ({ children }) => {
         setIsAuthenticated(true);
       } catch (error) {
         console.error('Token validation failed:', error);
-        // Token is invalid or expired, remove it
-        localStorage.removeItem('token');
-        setIsAuthenticated(false);
+        if (error.response?.status === 401) {
+          localStorage.removeItem('token');
+          setIsAuthenticated(false);
+        } else {
+          // A temporary backend or network failure does not invalidate a saved token.
+          setIsAuthenticated(Boolean(token));
+        }
       } finally {
         setIsValidating(false);
       }
@@ -55,6 +60,10 @@ const ProtectedRoute = ({ children }) => {
   }
   
   return children;
+};
+
+ProtectedRoute.propTypes = {
+  children: PropTypes.node.isRequired,
 };
 
 export default ProtectedRoute;

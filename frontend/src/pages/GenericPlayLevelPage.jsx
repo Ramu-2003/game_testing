@@ -1,6 +1,6 @@
-import React from "react";
+import { useEffect, useState } from "react";
 import { useParams, Navigate } from "react-router-dom";
-import { levelsRegistry } from "../config/levelsRegistry";
+import { loadCoursePhase } from "../config/curriculumLoader";
 
 // Import course-specific editor templates
 import LevelTemplate from "../components/levels/LevelTemplate"; // html
@@ -19,14 +19,42 @@ const TEMPLATE_MAP = {
 
 export const GenericPlayLevelPage = () => {
   const { courseId, phaseId, levelId } = useParams();
+  const [phaseLevels, setPhaseLevels] = useState(null);
+  const [loadedPhaseKey, setLoadedPhaseKey] = useState(null);
+  const [failedPhaseKey, setFailedPhaseKey] = useState(null);
 
   // Extract numbers from strings like "phase1" and "level5"
   const phaseNum = Number(phaseId?.replace("phase", "") || "1");
   const levelNum = Number(levelId?.replace("level", "") || "1");
+  const phaseKey = `${courseId}:${phaseNum}`;
 
-  // Fetch challenge object
-  const courseLevels = levelsRegistry[courseId];
-  const phaseLevels = courseLevels ? courseLevels[phaseNum] : null;
+  useEffect(() => {
+    let active = true;
+    loadCoursePhase(courseId, phaseNum)
+      .then((levels) => {
+        if (!levels) {
+          if (active) setFailedPhaseKey(phaseKey);
+          return;
+        }
+        if (active) {
+          setPhaseLevels(levels);
+          setLoadedPhaseKey(phaseKey);
+        }
+      })
+      .catch((error) => {
+        console.error('Unable to load course lesson:', error);
+        if (active) setFailedPhaseKey(phaseKey);
+      });
+    return () => { active = false; };
+  }, [courseId, phaseNum, phaseKey]);
+
+  if (failedPhaseKey === phaseKey) return <Navigate to="/levels-mode" replace />;
+
+  if (!phaseLevels || loadedPhaseKey !== phaseKey) {
+    return <div role="status" aria-live="polite" className="flex min-h-screen items-center justify-center bg-[#090d16] text-violet-200">Loading lesson…</div>;
+  }
+
+  // Read only the requested lesson from its lazily loaded course/phase chunk.
   const challenge = phaseLevels ? phaseLevels[levelNum] : null;
 
   // Fallback / redirect if route parameters are invalid

@@ -9,6 +9,7 @@ export const initializeSocket = () => {
   if (!socket) {
     socket = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
+      auth: (callback) => callback({ token: localStorage.getItem('token') }),
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionAttempts: 5
@@ -47,30 +48,44 @@ export const disconnectSocket = () => {
 export const createRoom = (roomId, roomData, userId, username) => {
   const sock = getSocket();
   return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      sock.off('room-created', onCreated);
+    };
+    const onCreated = (data) => {
+      cleanup();
+      if (data?.success) {
+        if (data.charged) window.dispatchEvent(new Event('pointsUpdated'));
+        resolve(data);
+      }
+      else reject(new Error(data?.message || 'Room creation failed'));
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Room creation timeout'));
+    }, 5000);
+    sock.once('room-created', onCreated);
     sock.emit('create-room', { roomId, roomData, userId, username });
-    
-    sock.once('room-created', (data) => {
-      resolve(data);
-    });
-
-    setTimeout(() => reject(new Error('Room creation timeout')), 5000);
   });
 };
 
 export const joinRoom = (roomId, password, userId, username) => {
   const sock = getSocket();
   return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timeout);
+      sock.off('room-joined', onJoined);
+      sock.off('join-error', onJoinError);
+    };
+    const onJoined = (data) => { cleanup(); resolve(data); };
+    const onJoinError = (error) => { cleanup(); reject(new Error(error.message)); };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Join room timeout'));
+    }, 5000);
+    sock.once('room-joined', onJoined);
+    sock.once('join-error', onJoinError);
     sock.emit('join-room', { roomId, password, userId, username });
-    
-    sock.once('room-joined', (data) => {
-      resolve(data);
-    });
-
-    sock.once('join-error', (error) => {
-      reject(new Error(error.message));
-    });
-
-    setTimeout(() => reject(new Error('Join room timeout')), 5000);
   });
 };
 
@@ -98,7 +113,7 @@ export const startGame = (roomId) => {
     }, 500);
 
     // Fail if we get an explicit error
-    const timeout = setTimeout(() => {
+    setTimeout(() => {
       sock.off('start-error', onStartError);
       // Don't reject on timeout — the game may still start
     }, 8000);

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Navbar } from "../components/Navbar";
 import { CustomCursor } from "../components/landing/CustomCursor";
@@ -6,6 +6,7 @@ import { HtmlIcon, CssIcon, JsIcon, PythonIcon, JavaIcon } from "../components/l
 import { PremiumIcon } from "../components/landing/PremiumIcon";
 import { ChevronLeft, ChevronRight, Zap } from "lucide-react";
 import PixelBlast from "../components/landing/PixelBlast";
+import { levelsAPI } from "../utils/api";
 
 /* ─── Themes ─────────────────────────────────────────────────────── */
 const THEMES = {
@@ -100,17 +101,16 @@ const StatBadge = ({ iconName, value, label, color }) => (
 );
 
 /* ─── Course Card ─────────────────────────────────────────────────── */
-const CourseCard = ({ course, theme, onClick, enterAnim, idx }) => {
+const CourseCard = ({ course, theme, onClick, enterAnim, idx, levelCount, catalogStatus }) => {
   const [hovered, setHovered] = useState(false);
   const { title, subtitle, version, badge, badgeColor, difficulty, Icon, langColor, glyph, description, features } = course;
 
   return (
-    <div
-      onClick={onClick}
+    <article
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        position: 'relative', overflow: 'hidden', cursor: 'pointer',
+        position: 'relative', overflow: 'hidden',
         borderRadius: 24,
         border: `1.5px solid ${hovered ? langColor : theme.accent + '28'}`,
         background: hovered
@@ -147,7 +147,7 @@ const CourseCard = ({ course, theme, onClick, enterAnim, idx }) => {
       <div style={{
         position: 'absolute', top: 18, right: 18, padding: '3px 12px', borderRadius: 20,
         background: `${badgeColor}18`, border: `1px solid ${badgeColor}45`,
-        fontFamily: 'monospace', fontSize: 15, fontWeight: 700, fontWeight: 900, letterSpacing: 2,
+        fontFamily: 'monospace', fontSize: 15,  fontWeight: 900, letterSpacing: 2,
         color: badgeColor, textTransform: 'uppercase',
       }}>{badge}</div>
 
@@ -236,11 +236,11 @@ const CourseCard = ({ course, theme, onClick, enterAnim, idx }) => {
               ))}
             </div>
           </div>
-          <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, color: hovered ? langColor : theme.ui, letterSpacing: 1, transition: 'color 0.3s' }}>
-            100 LEVELS
+          <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: hovered ? langColor : theme.ui, letterSpacing: 1, transition: 'color 0.3s' }}>
+            {catalogStatus === 'ready' ? `${levelCount} LEVELS` : catalogStatus === 'loading' ? 'LOADING CATALOG' : 'CATALOG UNAVAILABLE'}
           </span>
         </div>
-        <button style={{
+        <button onClick={onClick} aria-label={`Start learning ${title}`} style={{
           marginTop: 'auto', width: '100%', padding: '15px 0', borderRadius: 12, border: 'none',
           background: hovered ? `linear-gradient(135deg, ${langColor}, ${langColor}cc)` : `linear-gradient(135deg, ${theme.accent}70, ${theme.accent}35)`,
           color: 'white', cursor: 'pointer', fontFamily: 'Rajdhani, sans-serif', fontWeight: 900,
@@ -251,7 +251,7 @@ const CourseCard = ({ course, theme, onClick, enterAnim, idx }) => {
           START LEARNING <ChevronRight size={16} />
         </button>
       </div>
-    </div>
+    </article>
   );
 };
 
@@ -264,8 +264,29 @@ const LevelsModePage = () => {
   const [glitch,   setGlitch]   = useState(false);
   const [entered,  setEntered]  = useState(false);  // ENTER button state
   const [cardAnim, setCardAnim] = useState(false);
+  const [courseLevelCounts, setCourseLevelCounts] = useState(null);
+  const [catalogStatus, setCatalogStatus] = useState('loading');
 
   useEffect(() => { localStorage.setItem('themeKey', themeKey); }, [themeKey]);
+
+  useEffect(() => {
+    let active = true;
+    levelsAPI.getProgress().then(({ data }) => {
+      const counts = data.phaseLevelCounts || {};
+      if (!active) return;
+      const nextCounts = Object.fromEntries(COURSES.map((course) => [
+        course.id,
+        Object.values(counts[course.id] || {}).reduce((total, count) => total + (Number(count) || 0), 0),
+      ]));
+      setCourseLevelCounts(nextCounts);
+      setCatalogStatus(COURSES.every((course) => nextCounts[course.id] > 0) ? 'ready' : 'unavailable');
+    }).catch(() => {
+      if (active) setCatalogStatus('unavailable');
+    });
+    return () => { active = false; };
+  }, []);
+
+  const totalCourseLevelCount = Object.values(courseLevelCounts || {}).reduce((total, count) => total + count, 0);
 
   useEffect(() => {
     const iv = setInterval(() => { setGlitch(true); setTimeout(() => setGlitch(false), 180); }, 5000);
@@ -321,7 +342,7 @@ const LevelsModePage = () => {
             style={{
               display: 'flex', alignItems: 'center', gap: 7, padding: '8px 18px', borderRadius: 8,
               border: `1.5px solid ${ac}35`, background: `${ac}10`, color: ac, cursor: 'pointer',
-              fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase',
+              fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, letterSpacing: 2, textTransform: 'uppercase',
               transition: 'all 0.2s',
             }}
             onMouseEnter={e => { e.currentTarget.style.background = `${ac}20`; e.currentTarget.style.transform = 'translateX(-4px)'; }}
@@ -379,7 +400,7 @@ const LevelsModePage = () => {
               fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)',
               margin: '0 auto 48px', maxWidth: 500, lineHeight: 1.9,
             }}>
-              Choose your language. Conquer 100 progressive levels.<br />
+              Choose a language track and follow its current lesson path.<br />
               Earn XP, climb the ranks, and forge your coding legacy.
             </p>
 
@@ -390,7 +411,7 @@ const LevelsModePage = () => {
               borderRadius: 18, overflow: 'hidden', backdropFilter: 'blur(12px)',
               boxShadow: `0 0 40px ${ac}08`, marginBottom: 52,
             }}>
-              <StatBadge iconName="Library" value="500+" label="Total Levels"  color={ac} />
+              <StatBadge iconName="Library" value={catalogStatus === 'ready' ? totalCourseLevelCount : '—'} label="Total Lessons" color={ac} />
               <div style={{ width: 1, background: `${ac}15`, alignSelf: 'stretch' }} />
               <StatBadge iconName="Language" value="5"    label="Languages"     color={theme.asteroid} />
               <div style={{ width: 1, background: `${ac}15`, alignSelf: 'stretch' }} />
@@ -459,7 +480,7 @@ const LevelsModePage = () => {
                 CHOOSE YOUR LANGUAGE
               </h2>
               <p style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: `${ac}99`, letterSpacing: 3, margin: 0 }}>
-                5 LANGUAGES · 100 LEVELS EACH · START ANYTIME
+                5 TRACKS · {catalogStatus === 'ready' ? totalCourseLevelCount : catalogStatus === 'loading' ? 'LOADING' : 'UNAVAILABLE'} LESSONS · 10 PHASES
               </p>
             </div>
 
@@ -473,6 +494,8 @@ const LevelsModePage = () => {
                 <div key={course.id} style={{ flex: '1 1 0', minWidth: 248, maxWidth: 310 }}>
                   <CourseCard
                     course={course}
+                    levelCount={courseLevelCounts?.[course.id]}
+                    catalogStatus={catalogStatus}
                     theme={theme}
                     onClick={() => navigate(`/phases/${course.id}`)}
                     enterAnim={cardAnim}
@@ -498,12 +521,12 @@ const LevelsModePage = () => {
                 ].map(({ iconName, text, color }) => (
                   <div key={text} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                     <span style={{ fontSize: 16, display: 'flex' }}><PremiumIcon name={iconName} size={18} color={color} /></span>
-                    <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 15, fontWeight: 700, color: ui, letterSpacing: 1, textTransform: 'uppercase' }}>{text}</span>
+                    <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: ui, letterSpacing: 1, textTransform: 'uppercase' }}>{text}</span>
                   </div>
                 ))}
               </div>
               <div style={{ marginTop: 16, fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: `${ac}70`, letterSpacing: 3 }}>
-                SELECT A LANGUAGE TO BEGIN YOUR CAMPAIGN · ALL 100 LEVELS UNLOCKED
+                SELECT A TRACK TO BEGIN · COMPLETE EACH PHASE TO UNLOCK THE NEXT
               </div>
             </div>
           </div>

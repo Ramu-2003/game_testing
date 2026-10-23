@@ -1,6 +1,6 @@
 import { Trophy } from 'lucide-react';
 
-export const Leaderboard = ({ theme, id }) => {
+export const Leaderboard = ({ id }) => {
   // Professional content colors - Teal
   const contentTheme = {
     primary: '#14B8A6', // Teal

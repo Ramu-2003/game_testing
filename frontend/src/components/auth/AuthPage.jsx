@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import PropTypes from 'prop-types';
 import { authAPI } from "../../utils/api";
 import "./AuthPage.css";
 
 const AuthPage = ({ onLoginSuccess }) => {
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(() => new URLSearchParams(window.location.search).get('mode') === 'signup');
   const [isForgotPass, setIsForgotPass] = useState(false);
   const [showPass, setShowPass] = useState(false);
 
@@ -50,7 +52,7 @@ const AuthPage = ({ onLoginSuccess }) => {
       return setErrorMsg("Passwords do not match!");
     }
     try {
-      const response = await authAPI.register({
+      await authAPI.register({
         name,
         email,
         password,
@@ -59,10 +61,9 @@ const AuthPage = ({ onLoginSuccess }) => {
       clearInputs();
       setSuccessMsg("Registration successful! Please sign in.");
     } catch (err) {
-      console.error("Register error:", err);
       setErrorMsg(
         err.response?.data?.message ||
-          "Registration failed. Check console for details.",
+          "We couldn’t create your account. Please check your details and try again.",
       );
     }
   };
@@ -79,10 +80,9 @@ const AuthPage = ({ onLoginSuccess }) => {
       localStorage.setItem("token", response.data.token);
       onLoginSuccess();
     } catch (err) {
-      console.error("Login error:", err);
       setErrorMsg(
         err.response?.data?.message ||
-          "Login failed. Check console for details.",
+          "We couldn’t sign you in. Check your email and password, then try again.",
       );
     }
   };
@@ -95,7 +95,6 @@ const AuthPage = ({ onLoginSuccess }) => {
       const response = await authAPI.forgotPassword({ email });
       setSuccessMsg(response.data.message || "Reset link sent!");
     } catch (err) {
-      console.error("Forgot password error:", err);
       setErrorMsg(
         err.response?.data?.message ||
           "Failed to send reset email. Please try again later.",
@@ -103,7 +102,7 @@ const AuthPage = ({ onLoginSuccess }) => {
     }
   };
 
-  const EyeIcon = () => (
+  const EyeIcon = (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       width="20"
@@ -120,7 +119,7 @@ const AuthPage = ({ onLoginSuccess }) => {
     </svg>
   );
 
-  const EyeOffIcon = () => (
+  const EyeOffIcon = (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       width="20"
@@ -155,6 +154,8 @@ const AuthPage = ({ onLoginSuccess }) => {
             <input
               type="text"
               placeholder="Name"
+              aria-label="Name"
+              autoComplete="name"
               className="input-red"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -163,6 +164,8 @@ const AuthPage = ({ onLoginSuccess }) => {
             <input
               type="email"
               placeholder="Email"
+              aria-label="Email"
+              autoComplete="email"
               className="input-red"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -172,28 +175,40 @@ const AuthPage = ({ onLoginSuccess }) => {
               <input
                 type={showPass ? "text" : "password"}
                 placeholder="Password"
+                aria-label="Password"
+                autoComplete="new-password"
                 className="input-red"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                minLength={8}
+                maxLength={72}
                 required
               />
-              <span className="eye-icon" onClick={() => setShowPass(!showPass)}>
-                {showPass ? <EyeIcon /> : <EyeOffIcon />}
-              </span>
+              <button type="button" className="eye-icon" aria-label={showPass ? 'Hide password' : 'Show password'} aria-pressed={showPass} onClick={() => setShowPass(!showPass)}>
+                {showPass ? EyeIcon : EyeOffIcon}
+              </button>
             </div>
             <div className="input-group">
               <input
                 type={showPass ? "text" : "password"}
                 placeholder="Confirm Password"
+                aria-label="Confirm password"
+                autoComplete="new-password"
                 className="input-red"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                minLength={8}
+                maxLength={72}
                 required
               />
             </div>
             <button type="submit" className="btn-red">
               SIGN UP
             </button>
+            <button type="button" className="auth-mobile-toggle" onClick={toggleForm}>
+              Already have an account? Sign in
+            </button>
+            <Link className="auth-mobile-learn-link" to="/learn">Explore the courses</Link>
           </form>
         </div>
 
@@ -206,6 +221,8 @@ const AuthPage = ({ onLoginSuccess }) => {
             <input
               type="email"
               placeholder="Email"
+              aria-label="Email"
+              autoComplete="email"
               className="input-blue"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -215,14 +232,16 @@ const AuthPage = ({ onLoginSuccess }) => {
               <input
                 type={showPass ? "text" : "password"}
                 placeholder="Password"
+                aria-label="Password"
+                autoComplete="current-password"
                 className="input-blue"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
-              <span className="eye-icon" onClick={() => setShowPass(!showPass)}>
-                {showPass ? <EyeIcon /> : <EyeOffIcon />}
-              </span>
+              <button type="button" className="eye-icon" aria-label={showPass ? 'Hide password' : 'Show password'} aria-pressed={showPass} onClick={() => setShowPass(!showPass)}>
+                {showPass ? EyeIcon : EyeOffIcon}
+              </button>
             </div>
             <a href="#" className="forgot-link" onClick={handleForgotPassView}>
               Forgot Your Password?
@@ -230,6 +249,10 @@ const AuthPage = ({ onLoginSuccess }) => {
             <button type="submit" className="btn-blue">
               SIGN IN
             </button>
+            <button type="button" className="auth-mobile-toggle" onClick={toggleForm}>
+              New here? Create an account
+            </button>
+            <Link className="auth-mobile-learn-link" to="/learn">Explore the courses</Link>
           </form>
         </div>
 
@@ -238,13 +261,15 @@ const AuthPage = ({ onLoginSuccess }) => {
           <form onSubmit={handleForgotSubmit}>
             <h1 className="title-green">Forgot Your Password?</h1>
             <p className="forgot-text">
-              No worries. We'll help you recover your account quickly.
+              No worries. We&apos;ll help you recover your account quickly.
             </p>
             {errorMsg && <div className="error-msg">{errorMsg}</div>}
             {successMsg && <div className="success-msg">{successMsg}</div>}
             <input
               type="email"
               placeholder="Email"
+              aria-label="Email"
+              autoComplete="email"
               className="input-green"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -274,6 +299,7 @@ const AuthPage = ({ onLoginSuccess }) => {
                   <button className="ghost-btn blue" onClick={toggleForm}>
                     SIGN IN
                   </button>
+                  <Link className="auth-learn-link" to="/learn">Explore the courses</Link>
                 </div>
               </div>
             </div>
@@ -291,12 +317,13 @@ const AuthPage = ({ onLoginSuccess }) => {
                   <div className="overlay-text">
                     <h3>Hello, Friend!</h3>
                     <p>
-                      Don't have an account? Sign up and unlock amazing
+                      Don&apos;t have an account? Sign up and unlock amazing
                       features.
                     </p>
                     <button className="ghost-btn red" onClick={toggleForm}>
                       SIGN UP
                     </button>
+                    <Link className="auth-learn-link" to="/learn">See what you can build</Link>
                   </div>
                 </div>
               )}
@@ -335,3 +362,7 @@ const AuthPage = ({ onLoginSuccess }) => {
 };
 
 export default AuthPage;
+
+AuthPage.propTypes = {
+  onLoginSuccess: PropTypes.func.isRequired,
+};

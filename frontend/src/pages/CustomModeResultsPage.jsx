@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { CustomCursor } from '../components/landing/CustomCursor';
-import { Trophy, Zap, RotateCcw, Home, Clock, Target, Code } from 'lucide-react';
+import { Trophy, RotateCcw, Home, Clock, Target, Code } from 'lucide-react';
 
 
 const THEMES = {
@@ -17,7 +17,7 @@ const THEMES = {
 const PLAYER_COLORS = ['#00e5ff', '#ff6b35', '#a855f7', '#10b981'];
 
 // Confetti particle
-const Confetti = ({ active }) => {
+const Confetti = ({ active, accent }) => {
   const canvasRef = useRef(null);
   useEffect(() => {
     if (!active) return;
@@ -31,7 +31,7 @@ const Confetti = ({ active }) => {
       y: Math.random() * -canvas.height,
       r: Math.random() * 8 + 3,
       d: Math.random() * 120 + 80,
-      color: [ac, '#ff6b35', '#a855f7', '#10b981', '#f59e0b'][Math.floor(Math.random() * 5)],
+      color: [accent, '#ff6b35', '#a855f7', '#10b981', '#f59e0b'][Math.floor(Math.random() * 5)],
       vx: Math.random() * 2 - 1,
       vy: Math.random() * 2 + 1,
       opacity: Math.random() * 0.8 + 0.2,
@@ -58,15 +58,15 @@ const Confetti = ({ active }) => {
     draw();
     const t = setTimeout(() => cancelAnimationFrame(frame), 6000);
     return () => { cancelAnimationFrame(frame); clearTimeout(t); };
-  }, [active]);
+  }, [active, accent]);
   return active ? <canvas ref={canvasRef} style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 999 }} /> : null;
 };
 
 // Hex background
-const HexBg = () => (
+const HexBg = ({ accent }) => (
   <div style={{
     position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, opacity: 0.04,
-    backgroundImage: `radial-gradient(${ac}80 1px, transparent 1px)`,
+    backgroundImage: `radial-gradient(${accent}80 1px, transparent 1px)`,
     backgroundSize: '30px 30px',
   }} />
 );
@@ -85,7 +85,6 @@ const CustomModeResultsPage = () => {
   
 const players   = rd.players || [];
   const scores    = rd.scores || {};
-  const winner    = rd.winner; // userId of winner, 'draw', or null
   const myUserId  = rd.myUserId;
   const language  = rd.language || 'JavaScript';
   const difficulty = rd.difficulty || 'Moderate';
@@ -110,7 +109,7 @@ const players   = rd.players || [];
       return () => { clearTimeout(t1); clearTimeout(t2); };
     }
     return () => clearTimeout(t1);
-  }, []);
+  }, [didIWin, isDraw]);
 
   const cardStyle = {
     background: 'rgba(0,229,255,0.025)',
@@ -128,8 +127,8 @@ const players   = rd.players || [];
     <div style={{ minHeight: '100vh', background: ('#010d12'), color: 'white', position: 'relative', overflow: 'hidden' }}>
       <CustomCursor theme={{ accent: ac, ui: ui }} />
       <Navbar currentPage="custom-mode" themeKey={themeKey} setThemeKey={setThemeKey} themes={THEMES} currentTheme={{ accent: ac, ui: ui }} />
-      <HexBg />
-      <Confetti active={showConfetti} />
+      <HexBg accent={ac} />
+      <Confetti active={showConfetti} accent={ac} />
 
       {/* Ambient glow */}
       <div style={{

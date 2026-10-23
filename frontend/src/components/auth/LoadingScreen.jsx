@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import "./LoadingScreen.css";
 
 const LOADING_STAGES = [
@@ -51,7 +51,6 @@ const LOADING_STAGES = [
 
 const LoadingScreen = ({ onComplete, duration = 30000 }) => {
   const [progress, setProgress] = useState(0);
-  const [currentStage, setCurrentStage] = useState(0);
 
   // Progress animation
   useEffect(() => {
@@ -77,13 +76,7 @@ const LoadingScreen = ({ onComplete, duration = 30000 }) => {
     }
   }, [progress, onComplete]);
 
-  // Stage switch
-  useEffect(() => {
-    if (progress <= 33.33) setCurrentStage(0);
-    else if (progress <= 66.66) setCurrentStage(1);
-    else setCurrentStage(2);
-  }, [progress]);
-
+  const currentStage = progress <= 33.33 ? 0 : progress <= 66.66 ? 1 : 2;
   const stage = LOADING_STAGES[currentStage];
   const roundedProgress = Math.round(progress);
 

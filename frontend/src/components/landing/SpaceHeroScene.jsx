@@ -35,7 +35,8 @@ export const SpaceHeroScene = ({ theme }) => {
   const mountRef = useRef(null);
 
   useEffect(() => {
-    if (!mountRef.current) return;
+    const mountElement = mountRef.current;
+    if (!mountElement) return;
 
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x03030d, 0.028);
@@ -48,8 +49,8 @@ export const SpaceHeroScene = ({ theme }) => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.45;
-    mountRef.current.innerHTML = '';
-    mountRef.current.appendChild(renderer.domElement);
+    mountElement.innerHTML = '';
+    mountElement.appendChild(renderer.domElement);
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.34);
     const beamLight = new THREE.PointLight(theme.accent, 5.1, 58, 1.28);
@@ -151,8 +152,7 @@ export const SpaceHeroScene = ({ theme }) => {
 
     const primaryAsteroids = 24;
     for (let i = 0; i < primaryAsteroids; i += 1) {
-      addOrbitingRock
-      ({
+      addOrbitingRock({
         index: i,
         size: 0.28 + Math.random() * 0.18,
         scale: 1 + Math.random() * 0.95,
@@ -300,7 +300,7 @@ export const SpaceHeroScene = ({ theme }) => {
 
     // Pause when scrolled out of viewport, resume when scrolled back in
     const cleanupObserver = observeElement(
-      mountRef.current,
+      mountElement,
       () => { isInViewport = true; startLoop(); },
       () => { isInViewport = false; stopLoop(); }
     );
@@ -336,8 +336,8 @@ export const SpaceHeroScene = ({ theme }) => {
       nebulaDust.material.dispose();
       renderer.dispose();
 
-      if (mountRef.current?.contains(renderer.domElement)) {
-        mountRef.current.removeChild(renderer.domElement);
+      if (mountElement?.contains(renderer.domElement)) {
+        mountElement.removeChild(renderer.domElement);
       }
     };
   }, [theme]);

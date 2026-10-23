@@ -48,6 +48,7 @@ import { javaPhase7Levels } from './javaPhase7Levels';
 import { javaPhase8Levels } from './javaPhase8Levels';
 import { javaPhase9Levels } from './javaPhase9Levels';
 import { javaPhase10Levels } from './javaPhase10Levels';
+import { resolvePhaseChallenges } from './curriculumRegistryHelpers';
 
 export const levelsRegistry = {
   html: {
@@ -111,3 +112,12 @@ export const levelsRegistry = {
     10: javaPhase10Levels,
   },
 };
+
+// Several advanced phases shipped repeated placeholder rubrics after their first
+// few levels. Expand those entries at the registry boundary so every course
+// keeps the same route/data contract while presenting a real, phase-specific task.
+for (const [course, phases] of Object.entries(levelsRegistry)) {
+  for (const [phase, levels] of Object.entries(phases)) {
+    phases[phase] = resolvePhaseChallenges(course, phase, levels);
+  }
+}

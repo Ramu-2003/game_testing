@@ -20,26 +20,13 @@ const loadSharedKeys = () => {
 };
 
 const SHARED_API_KEYS = loadSharedKeys();
+const { MODELS, getModels, getPrimaryModel } = require('./groqModels');
 
 if (SHARED_API_KEYS.length === 0) {
   console.warn('[apiKeys] WARNING: No keys found in GROQ_API_KEYS env variable.');
 } else {
   console.log(`[apiKeys] Loaded ${SHARED_API_KEYS.length} API key(s) from GROQ_API_KEYS.`);
 }
-
-// Available models in priority order (best → fastest)
-const MODELS = [
-  'llama-3.3-70b-versatile',       // Latest, most accurate (70B)
-  'llama-3.2-90b-text-preview',    // Newest, largest (90B) - Preview
-  'llama-3.1-70b-versatile',       // Previous version (70B)
-  'mixtral-8x7b-32768',            // Mixtral MoE, large context (32K)
-  'llama3-70b-8192',               // Llama 3 with 8K context
-  'llama-3.2-11b-text-preview',    // Good middle ground (11B) - Preview
-  'llama-3.1-8b-instant',          // Fast, smaller model (8B)
-  'llama3-8b-8192',                // Llama 3 smaller version
-  'gemma2-9b-it',                  // Google Gemma 2 (9B)
-  'gemma-7b-it',                   // Google Gemma (7B)
-];
 
 // Round-robin counters per course (for logging/tracking only)
 const usageCount = {};
@@ -68,11 +55,6 @@ const getApiKey = (course) => {
 const getAllApiKeys = () => [...SHARED_API_KEYS];
 
 /** @returns {string[]} */
-const getModels = () => [...MODELS];
-
-/** @returns {string} */
-const getPrimaryModel = () => MODELS[0];
-
 /**
  * Try an API call with automatic fallback across all keys and models.
  * On rate-limit (429) or any error, moves to the next model then next key.

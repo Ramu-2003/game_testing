@@ -9,6 +9,7 @@
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "build": "cd frontend && npm run build",
+    "test": "npm run test --prefix runner && npm run test --prefix backend && npm run test --prefix frontend",
     "start:backend": "cd backend && npm start",
     "start:frontend": "cd frontend && npm run preview"
   },

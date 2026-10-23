@@ -1,6 +1,6 @@
 import { User } from 'lucide-react';
 
-export const Profile = ({ theme, id }) => {
+export const Profile = ({ id }) => {
   // Professional content colors - Indigo
   const contentTheme = {
     primary: '#6366F1', // Indigo

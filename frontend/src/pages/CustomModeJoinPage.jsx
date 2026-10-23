@@ -86,7 +86,7 @@ const handleJoin = () => {
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', marginBottom: 28,
             borderRadius: 8, border: `1px solid ${ac}30`, background: `${ac}08`,
             color: ac, cursor: 'pointer', fontFamily: 'Rajdhani, sans-serif',
-            fontWeight: 700, fontSize: 16, fontWeight: 700, transition: 'all 0.2s',
+             fontSize: 16, fontWeight: 700, transition: 'all 0.2s',
           }}
           onMouseEnter={e => e.currentTarget.style.background = `${ac}18`}
           onMouseLeave={e => e.currentTarget.style.background = `${ac}08`}
@@ -130,7 +130,7 @@ const handleJoin = () => {
 
               {/* Room ID */}
               <div>
-                <label style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, color: ac, display: 'block', marginBottom: 8 }}>
+                <label style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, color: ac, display: 'block', marginBottom: 8 }}>
                   ROOM ID <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <div style={{ position: 'relative' }}>
@@ -156,7 +156,7 @@ const handleJoin = () => {
 
               {/* Password */}
               <div>
-                <label style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.8)', display: 'block', marginBottom: 8 }}>
+                <label style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 2, color: 'rgba(255,255,255,0.8)', display: 'block', marginBottom: 8 }}>
                   PASSWORD <span style={{ color: 'rgba(255,255,255,0.55)', textTransform: 'lowercase', fontSize: 15, fontWeight: 700 }}>(required)</span>
                 </label>
                 <div style={{ position: 'relative' }}>
@@ -186,7 +186,7 @@ const handleJoin = () => {
                 background: `${ac}06`, border: `1px solid ${ac}18`,
                 fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6,
               }}>
-                🎯 Get your Room ID and Password from the host's battle lobby screen. Room IDs start with <strong style={{ color: ac }}>CUST-</strong>
+                🎯 Get your Room ID and Password from the host&apos;s battle lobby screen. Room IDs start with <strong style={{ color: ac }}>CUST-</strong>
 
 </div>
 

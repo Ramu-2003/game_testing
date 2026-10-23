@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Rocket, CheckCircle2, AlertTriangle, Zap, Play, Crown } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Rocket, CheckCircle2, AlertTriangle, Zap, Crown } from 'lucide-react';
 import { Navbar } from '../components/Navbar';
 import { CustomCursor } from '../components/landing/CustomCursor';
 import { PremiumIcon } from '../components/landing/PremiumIcon';
@@ -182,7 +182,7 @@ const theme = THEMES[themeKey] || THEMES.purple;
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px',
             borderRadius: 8, border: `1.5px solid ${accent}40`, background: `${accent}10`,
             color: accent, cursor: 'pointer', fontFamily: 'Rajdhani, sans-serif',
-            fontWeight: 700, fontSize: 15, fontWeight: 700, transition: 'all 0.2s',
+             fontSize: 15, fontWeight: 700, transition: 'all 0.2s',
           }}
           onMouseEnter={e => e.currentTarget.style.background = `${accent}20`}
           onMouseLeave={e => e.currentTarget.style.background = `${accent}10`}
@@ -257,7 +257,7 @@ const theme = THEMES[themeKey] || THEMES.purple;
                 <div style={{
                   marginLeft: 'auto', padding: '4px 12px', borderRadius: 20,
                   background: `${diffInfo.color}20`, border: `1px solid ${diffInfo.color}40`,
-                  fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: diffInfo.color, fontWeight: 700,
+                  fontFamily: 'monospace', fontSize: 15,  color: diffInfo.color, fontWeight: 700,
                 }}>
                   {diffInfo.tests} TESTS
                 </div>
@@ -327,7 +327,7 @@ const theme = THEMES[themeKey] || THEMES.purple;
                   }}>
                     <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.65)',
                       textTransform: 'uppercase', letterSpacing: 1, marginBottom: 2 }}>{label}</div>
-                    <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 15, fontWeight: 700, color: 'white' }}>{value}</div>
+                    <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: 'white' }}>{value}</div>
                   </div>
                 ))}
               </div>
@@ -339,7 +339,7 @@ const theme = THEMES[themeKey] || THEMES.purple;
                 display: 'flex', alignItems: 'center', gap: 8,
               }}>
                 <span style={{ display: 'flex', alignItems: 'center' }}><PremiumIcon name={diffInfo.iconName} size={20} color={diffInfo.color} /></span>
-                <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, color: diffInfo.color, letterSpacing: 1 }}>
+                <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: diffInfo.color, letterSpacing: 1 }}>
                   {diffInfo.label}
                 </span>
               </div>
@@ -369,6 +369,12 @@ const theme = THEMES[themeKey] || THEMES.purple;
               </div>
 
               {/* Enter Arena button */}
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '10px 12px', marginBottom: 12, borderRadius: 9, background: `${accent}12`, border: `1px solid ${accent}35` }}>
+                <Zap size={16} style={{ color: accent, flexShrink: 0, marginTop: 1 }} />
+                <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'rgba(255,255,255,0.78)', lineHeight: 1.5 }}>
+                  <strong style={{ color: accent }}>ROOM FEE: 1 G-THUNDER.</strong> The creator is charged when the room is created; joining is free. No refund if you leave or do not play.
+                </div>
+              </div>
               <button
                 onClick={handleEnterArena}
                 disabled={isCreating}
@@ -389,19 +395,15 @@ const theme = THEMES[themeKey] || THEMES.purple;
                   <>
                     <div style={{ width: 16, height: 16, border: '3px solid rgba(255,255,255,0.6)',
                       borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                    CREATING ARENA...
+                    CREATING ROOM...
                   </>
                 ) : (
                   <>
-                    <Rocket size={16} /> ENTER THE ARENA <ChevronRight size={16} />
+                    <Rocket size={16} /> CREATE ROOM <ChevronRight size={16} />
                   </>
                 )}
               </button>
 
-              <div style={{ textAlign: 'center', marginTop: 10, fontFamily: 'monospace',
-                fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)', letterSpacing: 1 }}>
-                Room ID generated automatically on creation
-              </div>
             </div>
           </div>
         </div>

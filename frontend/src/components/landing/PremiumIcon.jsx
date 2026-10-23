@@ -1,4 +1,3 @@
-import React from 'react';
 import { User, Users, RefreshCcw, Timer, Laptop, VenetianMask, Star, Shield, Flame, Swords, Bot, Moon, Brain, Zap, Skull, Library, Crown, Target, Activity, BarChart2, Bug, Medal, Diamond, Hexagon, Trophy } from 'lucide-react';
 import { HtmlIcon, CssIcon, JsIcon, PythonIcon, JavaIcon } from './TechIcons';
 import { Swords3DIcon } from './ModeIcons';

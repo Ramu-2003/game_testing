@@ -4,6 +4,9 @@ import { ChevronUp, ChevronDown, Play, Send, Clock, CheckCircle2, XCircle, X, Te
 import { Navbar } from "../Navbar";
 import { CustomCursor } from "../landing/CustomCursor";
 import { levelsAPI, validationAPI } from "../../utils/api";
+import { readChallengeTimer, saveChallengeTimer } from "../../utils/challengeTimer";
+import { buildHtmlPreview } from "../../utils/livePreview";
+import LessonGuide from "./LessonGuide";
 
 const PAGE_BG = {
   red: "#0d0202",
@@ -23,29 +26,10 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
     challenge.testCases.map((_, index) => ({ id: index + 1, passed: false }))
   );
   
-  const timerKey = `${course}_level${levelNumber}_timer`;
-  
-  const [timeLeft, setTimeLeft] = useState(() => {
-    const saved = sessionStorage.getItem(timerKey);
-    if (saved) {
-      const { timeLeft: savedTime, timestamp } = JSON.parse(saved);
-      const elapsed = Math.floor((Date.now() - timestamp) / 1000);
-      const remaining = savedTime - elapsed;
-      return remaining > 0 ? remaining : 0;
-    }
-    return challenge.timeLimit;
-  });
-  
-  const [isRunning, setIsRunning] = useState(() => {
-    const saved = sessionStorage.getItem(timerKey);
-    if (saved) {
-      const { timeLeft: savedTime, timestamp } = JSON.parse(saved);
-      const elapsed = Math.floor((Date.now() - timestamp) / 1000);
-      const remaining = savedTime - elapsed;
-      return remaining > 0;
-    }
-    return true;
-  });
+  const timerKey = `${course}_phase${phase}_level${levelNumber}_timer`;
+  const [initialTimer] = useState(() => readChallengeTimer(timerKey, challenge.timeLimit));
+  const [timeLeft, setTimeLeft] = useState(initialTimer.timeLeft);
+  const [isRunning, setIsRunning] = useState(initialTimer.isRunning);
   
   const [showExitModal, setShowExitModal] = useState(false);
   const [showResultModal, setShowResultModal] = useState(false);
@@ -54,8 +38,11 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [isCompiling, setIsCompiling] = useState(false);
   const [canSubmit, setCanSubmit] = useState(false);
-  const [actualOutput, setActualOutput] = useState("");
+  const [completionProof, setCompletionProof] = useState(null);
+  const [claimedXp, setClaimedXp] = useState(50);
+  const [actualOutput, setActualOutput] = useState(challenge.starterCode || "");
   const editorRef = useRef(null);
+  const codeRef = useRef(code);
 
   const themes = {
     red: {
@@ -88,19 +75,9 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
   }, [themeKey]);
 
   useEffect(() => {
-    if (isRunning && timeLeft > 0) {
-      sessionStorage.setItem(timerKey, JSON.stringify({
-        timeLeft,
-        timestamp: Date.now()
-      }));
-    }
+    if (isRunning && timeLeft > 0) saveChallengeTimer(timerKey, timeLeft);
+    else if (timeLeft === 0) saveChallengeTimer(timerKey, 0);
   }, [timeLeft, isRunning, timerKey]);
-
-  useEffect(() => {
-    if (timeLeft === 0 || showResultModal) {
-      sessionStorage.removeItem(timerKey);
-    }
-  }, [timeLeft, showResultModal, timerKey]);
 
   useEffect(() => {
     return () => {
@@ -117,7 +94,6 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
-          handleTimeUp();
           return 0;
         }
         return prev - 1;
@@ -126,6 +102,18 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
 
     return () => clearInterval(timer);
   }, [isRunning, timeLeft]);
+
+  useEffect(() => {
+    if (timeLeft !== 0 || showResultModal) return;
+    setIsRunning(false);
+    setLevelResult('lose');
+    setShowResultModal(true);
+    setConsoleOutput((prev) => [...prev, {
+      message: "⏰ Time's up!",
+      type: 'error',
+      timestamp: new Date().toLocaleTimeString(),
+    }]);
+  }, [timeLeft, showResultModal]);
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -141,8 +129,10 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
     if (isCompiling) return;
     
     setIsCompiling(true);
+    setCanSubmit(false);
+    setCompletionProof(null);
     setConsoleOutput([]);
-    addConsoleMessage("🔄 Compiling HTML code...", "info");
+    addConsoleMessage("🔄 Checking HTML requirements...", "info");
 
     const trimmedCode = code.trim();
     if (!trimmedCode) {
@@ -159,18 +149,22 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
         levelTitle: challenge.title,
         levelDescription: challenge.description,
         testCases: challenge.testCases,
-        expectedOutput: challenge.expectedOutput
+        expectedOutput: challenge.expectedOutput,
+        course,
+        phase,
+        level: levelNumber,
       });
 
+      if (codeRef.current !== trimmedCode) return;
       const validation = response.data.validation;
 
       if (validation.errors && validation.errors.length > 0) {
-        addConsoleMessage("❌ Compilation failed with errors:", "error");
+        addConsoleMessage("❌ Validation found issues:", "error");
         validation.errors.forEach((error) => {
           addConsoleMessage(`   Line ${error.line}: ${error.message} (${error.type})`, "error");
         });
       } else {
-        addConsoleMessage("✅ Compilation successful!", "success");
+        addConsoleMessage("✅ Requirements reviewed.", "success");
       }
 
       const newTestResults = validation.testResults.map(tr => ({
@@ -179,13 +173,20 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
       }));
       setTestResults(newTestResults);
 
-      const allPassed = validation.allTestsPassed;
+      const testsPassed = validation.allTestsPassed;
+      const proof = response.data.completionProof;
+      setCompletionProof(typeof proof === 'string' ? proof : null);
+      const allPassed = testsPassed && typeof proof === 'string';
       setCanSubmit(allPassed);
 
+      if (testsPassed && !allPassed) {
+        addConsoleMessage("⚠️ The result could not be secured. Run validation again before submitting.", "warning");
+      }
+
       if (allPassed) {
-        addConsoleMessage("🎉 All test cases passed! You can now submit.", "success");
+        addConsoleMessage("🎉 All requirement checks passed. You can now submit.", "success");
       } else {
-        addConsoleMessage("⚠️ Some test cases failed. Fix the errors and try again.", "warning");
+        addConsoleMessage("⚠️ Some requirements still need changes. Review the failed checks.", "warning");
         
         validation.testResults.forEach((test) => {
           if (!test.passed) {
@@ -207,7 +208,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
 
   const handleSubmit = () => {
     if (!canSubmit) {
-      addConsoleMessage("❌ Cannot submit: Not all test cases passed", "error");
+      addConsoleMessage("❌ Cannot submit: satisfy every requirement check first.", "error");
       return;
     }
 
@@ -224,18 +225,22 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
 
   const handleClaimReward = async () => {
     if (rewardClaimed) return;
+    if (!completionProof) {
+      addConsoleMessage("❌ Validate your current code before claiming the reward.", "error");
+      return;
+    }
     
     setIsClaimingReward(true);
     
     try {
-      const xpReward = 50;
-      
-      await levelsAPI.completeLevel({
+      const response = await levelsAPI.completeLevel({
         course,
         phase,
         level: levelNumber,
-        xpReward
+        completionProof,
+        userCode: code,
       });
+      setClaimedXp(response.data.xpEarned || 0);
       
       setRewardClaimed(true);
       window.dispatchEvent(new Event('pointsUpdated'));
@@ -251,17 +256,14 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
     }
   };
 
-  const handleTimeUp = () => {
-    if (!showResultModal) {
-      setIsRunning(false);
-      setLevelResult('lose');
-      setShowResultModal(true);
-      addConsoleMessage("⏰ Time's up!", "error");
-    }
-  };
 
   const handleCodeChange = (e) => {
-    setCode(e.target.value);
+    const nextCode = e.target.value;
+    codeRef.current = nextCode;
+    setCode(nextCode);
+    setActualOutput(nextCode);
+    setCanSubmit(false);
+    setCompletionProof(null);
   };
 
   const handleExit = () => {
@@ -385,7 +387,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
           >
             <CornerDecals />
             <span className="text-[8px] font-bold tracking-[0.25em] text-slate-500 uppercase font-mono block mb-1">
-              // Objective Level Instructions
+              {'//'} Objective Level Instructions
             </span>
             <h2 className="text-md font-bold font-mono tracking-wide text-white uppercase mb-2 flex items-center gap-1.5" style={{ textShadow: `0 0 10px ${currentTheme.accent}30` }}>
               <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: currentTheme.accent }} />
@@ -393,6 +395,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
             </h2>
             <div className="text-xs text-slate-300 leading-relaxed font-mono flex-1 overflow-y-auto custom-scrollbar pr-1">
               {challenge.description}
+              <LessonGuide challenge={challenge} />
             </div>
           </div>
 
@@ -403,7 +406,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
           >
             <CornerDecals />
             <span className="text-[8px] font-bold tracking-[0.25em] text-slate-500 uppercase font-mono block mb-3">
-              // CHECKPOINT_VERIFICATION ({challenge.testCases.length})
+              {'//'} REQUIREMENT_CHECKS ({challenge.testCases.length})
             </span>
             <div className="space-y-2 overflow-y-auto flex-1 custom-scrollbar pr-1">
               {challenge.testCases.map((test) => {
@@ -511,7 +514,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
                 <div className="crt-scanline" />
                 {consoleOutput.length === 0 ? (
                   <p className="text-gray-500 text-xs font-mono flex items-center gap-1.5">
-                    <span className="animate-pulse" style={{ color: currentTheme.accent }}>●</span> Terminal ready. Execute compilation checklist...
+                    <span className="animate-pulse" style={{ color: currentTheme.accent }}>●</span> Requirement checker ready...
                   </p>
                 ) : (
                   consoleOutput.map((log, index) => (
@@ -612,7 +615,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
               >
                 <span className="absolute inset-0 w-full h-full bg-white/10 transform translate-y-full group-hover:translate-y-0 transition-transform duration-300 pointer-events-none" />
                 <Play size={10} fill="white" />
-                Compile
+                Check Requirements
               </button>
 
               <button
@@ -682,25 +685,25 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
               {previewTab === "live" ? (
                 actualOutput ? (
                   <iframe
-                    srcDoc={actualOutput}
-                    title="live-output"
+                    srcDoc={buildHtmlPreview(actualOutput)}
+                    title="Live HTML preview"
                     className="w-full h-full border-0"
-                    sandbox="allow-scripts"
+                    sandbox=""
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-slate-400 text-xs text-center p-6 bg-slate-950/20">
                     <Eye size={22} className="text-slate-400 mb-2 opacity-50" />
                     <span className="font-mono text-[10px] tracking-wide text-slate-400">No output telemetry captured yet.</span>
-                    <span className="font-mono text-[9px] text-slate-500 mt-1">Compile your files to review preview stream.</span>
+                    <span className="font-mono text-[9px] text-slate-500 mt-1">Check requirements to refresh your preview.</span>
                   </div>
                 )
               ) : (
                 challenge.expectedOutput ? (
                   <iframe
-                    srcDoc={challenge.expectedOutput}
-                    title="expected-output"
+                    srcDoc={buildHtmlPreview(challenge.expectedOutput)}
+                    title="Expected HTML result"
                     className="w-full h-full border-0"
-                    sandbox="allow-scripts"
+                    sandbox=""
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-mono bg-slate-950/20">
@@ -774,7 +777,7 @@ const LevelTemplate = ({ challenge, course, phase, levelNumber }) => {
                 <div className="bg-slate-950/60 border border-slate-900 rounded-xl p-3.5 mb-5 flex items-center justify-center gap-2 relative">
                   <div className="absolute inset-0 bg-emerald-500/5 rounded-xl animate-pulse" />
                   <span className="font-techno font-bold text-lg text-emerald-400 tracking-widest font-mono shadow-emerald-950" style={{ textShadow: '0 0 10px rgba(16,185,129,0.4)' }}>
-                    +50 XP POINTS
+                    +{claimedXp} XP POINTS
                   </span>
                 </div>
                 <button

@@ -3,6 +3,20 @@ import { useParams, useNavigate } from "react-router-dom";
 import { authAPI } from "../../utils/api";
 import "./AuthPage.css";
 
+const EyeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
 const ResetPassword = () => {
   const { token } = useParams();
   const navigate = useNavigate();
@@ -12,6 +26,8 @@ const ResetPassword = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTokenValid, setIsTokenValid] = useState(true);
   const [isChecking, setIsChecking] = useState(true);
+  const [submitMessage, setSubmitMessage] = useState('');
+  const [submitError, setSubmitError] = useState('');
 
   // Check token validity on component mount
   useEffect(() => {
@@ -26,7 +42,7 @@ const ResetPassword = () => {
           setIsTokenValid(false);
         }
         setIsChecking(false);
-      } catch (err) {
+      } catch {
         // Token is invalid or expired
         setIsTokenValid(false);
         setIsChecking(false);
@@ -38,18 +54,28 @@ const ResetPassword = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (password !== confirmPassword) return alert("Passwords do not match");
+    setSubmitError('');
+    setSubmitMessage('');
+    if (password !== confirmPassword) {
+      setSubmitError('Passwords do not match.');
+      return;
+    }
+    const passwordBytes = new TextEncoder().encode(password).length;
+    if (passwordBytes < 8 || passwordBytes > 72) {
+      setSubmitError('Choose a password that is at least 8 characters and no more than 72 UTF-8 bytes.');
+      return;
+    }
 
     if (isSubmitting) return;
     setIsSubmitting(true);
 
     try {
       await authAPI.resetPassword(token, { password });
-      alert("Password updated successfully! Redirecting to login...");
       // Token is now invalidated on the backend, link cannot be reused
-      setTimeout(() => {
+      setSubmitMessage('Password updated. Taking you to sign in…');
+      window.setTimeout(() => {
         navigate("/");
-      }, 1000);
+      }, 1200);
     } catch (err) {
       setIsSubmitting(false);
       const errorMessage = err.response?.data?.message || "Error resetting password";
@@ -57,45 +83,11 @@ const ResetPassword = () => {
       // Check if token is expired or invalid
       if (errorMessage.includes("Invalid") || errorMessage.includes("expired")) {
         setIsTokenValid(false);
+      } else {
+        setSubmitError(errorMessage);
       }
-      
-      alert(errorMessage);
     }
   };
-
-  const EyeIcon = () => (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-      <circle cx="12" cy="12" r="3"></circle>
-    </svg>
-  );
-
-  const EyeOffIcon = () => (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-      <line x1="1" y1="1" x2="23" y2="23"></line>
-    </svg>
-  );
 
   return (
     <>
@@ -192,6 +184,8 @@ const ResetPassword = () => {
                 >
                   Enter and confirm your new password below.
                 </p>
+                {submitError && <div className="error-msg" role="alert">{submitError}</div>}
+                {submitMessage && <div className="success-msg" role="status">{submitMessage}</div>}
 
                 {/* New password */}
                 <div className="input-group">
@@ -201,14 +195,19 @@ const ResetPassword = () => {
                     className="input-blue"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    minLength={8}
+                    maxLength={72}
                     required
                   />
-                  <span
+                  <button
+                    type="button"
                     className="eye-icon"
-                    onClick={() => setShowPass(!showPass)}
+                    aria-label={showPass ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPass}
+                    onClick={() => setShowPass((visible) => !visible)}
                   >
                     {showPass ? <EyeIcon /> : <EyeOffIcon />}
-                  </span>
+                  </button>
                 </div>
 
                 {/* Confirm password */}
@@ -219,6 +218,8 @@ const ResetPassword = () => {
                     className="input-blue"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
+                    minLength={8}
+                    maxLength={72}
                     required
                   />
                 </div>

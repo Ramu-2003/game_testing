@@ -1,7 +1,61 @@
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const nodemailer = require('nodemailer');
 const User = require('../models/User');
+const levelsRegistry = require('../data/levelsRegistry.json');
+const { getPhaseLevelCounts } = require('../utils/curriculumStats');
+const RewardTransaction = require('../models/RewardTransaction');
+const { claimDailyXp, awardXpOnce } = require('../services/rewards');
+const { verifyLevelCompletionProof } = require('../utils/completionProof');
+const { getLevelCompletionDecision } = require('../utils/levelProgression');
+
+const DUMMY_PASSWORD_HASH = bcrypt.hash('game-trail-invalid-account-password', 12);
+const PROFILE_IMAGE_PATTERN = /^\/assets\/profile-images\/(?:male|female)_human_(?:0[1-9]|[1-4][0-9]|50)\.png$/;
+
+function normalizeEmail(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function validNewPassword(value) {
+  return typeof value === 'string'
+    && Buffer.byteLength(value, 'utf8') >= 8
+    && Buffer.byteLength(value, 'utf8') <= 72;
+}
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+async function findUserByResetToken(token) {
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/i.test(token)) return null;
+  return User.findOne({
+    resetPasswordToken: { $in: [hashResetToken(token), token] },
+    resetPasswordExpires: { $gt: Date.now() },
+  });
+}
+
+async function findUserByEmail(email) {
+  const exact = await User.findOne({ email });
+  if (exact || !email) return exact;
+  // The case-insensitive fallback keeps accounts created before email
+  // normalization able to sign in while new addresses are stored lowercase.
+  return User.findOne({ email: new RegExp(`^${escapeRegExp(email)}$`, 'i') });
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character]);
+}
+
+function logAuthFailure(action, error) {
+  console.error(`[Auth] ${action} failed:`, error?.code || error?.name || 'UNKNOWN_ERROR');
+}
 
 // Configure Gmail SMTP transporter with explicit settings
 const transporter = nodemailer.createTransport({
@@ -12,9 +66,6 @@ const transporter = nodemailer.createTransport({
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_PASS,
   },
-  tls: {
-    rejectUnauthorized: false
-  }
 });
 
 // Verify transporter configuration on startup
@@ -39,15 +90,25 @@ exports.testRoute = (req, res) => {
 // Register new user
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const email = normalizeEmail(req.body?.email);
+    const password = req.body?.password;
+
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "All fields are required" });
+      return res.status(400).json({ message: 'Name, email, and password are required.' });
     }
 
-    const userExists = await User.findOne({ email });
+    if (name.length > 80 || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid name and email address.' });
+    }
+
+    if (!validNewPassword(password)) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters and no more than 72 UTF-8 bytes.' });
+    }
+
+    const userExists = await findUserByEmail(email);
     if (userExists) {
-      return res.status(400).json({ message: "User already exists" });
+      return res.status(409).json({ message: 'An account already exists for this email.' });
     }
 
     const user = new User({ name, email, password });
@@ -55,7 +116,10 @@ exports.register = async (req, res) => {
 
     res.json({ message: "Registered Successfully" });
   } catch (err) {
-    console.error('Register error:', err);
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: 'An account already exists for this email.' });
+    }
+    logAuthFailure('registration', err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -63,30 +127,23 @@ exports.register = async (req, res) => {
 // Login user
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+    const password = req.body?.password;
     
-    console.log('Login attempt:', email);
-    
-    if (!email || !password) {
-      console.log('Missing email or password');
-      return res.status(400).json({ message: "Email and password are required" });
+    if (!email || typeof password !== 'string' || email.length > 254 || password.length > 1024) {
+      return res.status(400).json({ message: 'Enter a valid email and password.' });
     }
 
-    const user = await User.findOne({ email });
+    const user = await findUserByEmail(email.toLowerCase());
     if (!user) {
-      console.log('User not found:', email);
-      return res.status(400).json({ message: "User not found. Please register first" });
+      await bcrypt.compare(password, await DUMMY_PASSWORD_HASH);
+      return res.status(401).json({ message: 'Email or password is incorrect.' });
     }
-
-    console.log('User found:', user.email);
     
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      console.log('Password mismatch for:', email);
-      return res.status(400).json({ message: "Incorrect password" });
+      return res.status(401).json({ message: 'Email or password is incorrect.' });
     }
-
-    console.log('Password matched for:', email);
 
     const token = jwt.sign(
       { id: user._id },
@@ -94,7 +151,6 @@ exports.login = async (req, res) => {
       { expiresIn: "1h" }
     );
 
-    console.log('Login successful:', email);
     res.json({ 
       token, 
       user: { 
@@ -112,41 +168,38 @@ exports.login = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ message: "Server error: " + err.message });
+    logAuthFailure('sign-in', err);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
 // Forgot password
 exports.forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body;
-    
-    console.log('Forgot password request for:', email);
+    const email = normalizeEmail(req.body?.email);
     
     if (!email) {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    const user = await User.findOne({ email });
+    if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+
+    const user = await findUserByEmail(email);
     if (!user) {
-      console.log('User not found for forgot password:', email);
       // Security: Don't reveal if user exists or not
       return res.json({ message: "If this email is registered, you will receive a reset link" });
     }
 
-    console.log('User found, generating reset token for:', email);
     const resetToken = crypto.randomBytes(32).toString('hex');
-    user.resetPasswordToken = resetToken;
+    user.resetPasswordToken = hashResetToken(resetToken);
     user.resetPasswordExpires = Date.now() + 900000; // 15 minutes (900000 ms)
     await user.save();
 
     const frontend = process.env.FRONTEND_URL || 'http://localhost:5173';
     const resetURL = `${frontend}/reset-password/${resetToken}`;
     
-    console.log('Reset URL generated:', resetURL);
-    console.log('Gmail configured:', !!process.env.GMAIL_USER);
-
     const mailOptions = {
       from: `"GAME IN MY STYLE" <${process.env.EMAIL_FROM}>`,
       to: user.email,
@@ -159,7 +212,7 @@ exports.forgotPassword = async (req, res) => {
           
           <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px;">
             <h2 style="color: #333; margin-top: 0;">Password Reset Request</h2>
-            <p style="color: #555; line-height: 1.6;">Hello ${user.name},</p>
+            <p style="color: #555; line-height: 1.6;">Hello ${escapeHtml(user.name)},</p>
             <p style="color: #555; line-height: 1.6;">You requested a password reset for your GAME IN MY STYLE account.</p>
             <p style="color: #555; line-height: 1.6;">Click the button below to reset your password:</p>
             
@@ -186,20 +239,18 @@ exports.forgotPassword = async (req, res) => {
     };
     
     // Send email asynchronously (non-blocking)
-    console.log('Queuing email to:', user.email);
     transporter.sendMail(mailOptions)
       .then(() => {
-        console.log('Password reset email sent successfully to:', user.email);
+        console.log('Password reset email sent.');
       })
       .catch((emailErr) => {
-        console.error('Gmail SMTP error for', user.email, ':', emailErr.message);
-        console.log('Manual reset URL for debugging:', resetURL);
+        console.error('Password reset email delivery failed:', emailErr.code || 'SMTP_ERROR');
       });
     
     // Respond immediately without waiting for email
     res.json({ message: "If this email is registered, you will receive a reset link" });
   } catch (err) {
-    console.error('Forgot password error:', err);
+    logAuthFailure('password reset request', err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -207,10 +258,7 @@ exports.forgotPassword = async (req, res) => {
 // Validate reset token (check if token is still valid)
 exports.validateResetToken = async (req, res) => {
   try {
-    const user = await User.findOne({
-      resetPasswordToken: req.params.token,
-      resetPasswordExpires: { $gt: Date.now() }
-    });
+    const user = await findUserByResetToken(req.params.token);
 
     if (!user) {
       return res.status(400).json({ 
@@ -224,7 +272,7 @@ exports.validateResetToken = async (req, res) => {
       message: "Token is valid" 
     });
   } catch (err) {
-    console.error('Validate token error:', err);
+    logAuthFailure('reset-token validation', err);
     res.status(500).json({ 
       valid: false, 
       message: "Server error" 
@@ -235,10 +283,11 @@ exports.validateResetToken = async (req, res) => {
 // Reset password
 exports.resetPassword = async (req, res) => {
   try {
-    const user = await User.findOne({
-      resetPasswordToken: req.params.token,
-      resetPasswordExpires: { $gt: Date.now() }
-    });
+    if (!validNewPassword(req.body?.password)) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters and no more than 72 UTF-8 bytes.' });
+    }
+
+    const user = await findUserByResetToken(req.params.token);
 
     if (!user) {
       return res.status(400).json({ message: "Invalid or expired token" });
@@ -251,7 +300,7 @@ exports.resetPassword = async (req, res) => {
 
     res.json({ message: "Password updated successfully" });
   } catch (err) {
-    console.error('Reset password error:', err);
+    logAuthFailure('password reset', err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -267,7 +316,7 @@ exports.getProfile = async (req, res) => {
 
     res.json({ user });
   } catch (err) {
-    console.error('Get profile error:', err);
+    logAuthFailure('profile read', err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -275,16 +324,29 @@ exports.getProfile = async (req, res) => {
 // Setup profile (first time after registration)
 exports.setupProfile = async (req, res) => {
   try {
-    const { fullName, username, gender, bio, profileImage } = req.body;
+    const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const { fullName, username, gender, bio, profileImage } = payload;
+    const normalizedFullName = typeof fullName === 'string' ? fullName.trim() : '';
+    const normalizedUsername = typeof username === 'string' ? username.trim() : '';
     
-    console.log('Setup profile request:', { fullName, username, gender, bio, profileImage, userId: req.user.id });
-    
-    if (!fullName || !username || !gender) {
+    if (!normalizedFullName || !normalizedUsername || !gender) {
       return res.status(400).json({ message: "Full name, username, and gender are required" });
+    }
+
+    if (normalizedFullName.length > 80 || !/^[a-zA-Z0-9_]{1,24}$/.test(normalizedUsername)) {
+      return res.status(400).json({ message: 'Name or username has an invalid length or format.' });
     }
 
     if (!['male', 'female'].includes(gender)) {
       return res.status(400).json({ message: "Gender must be either 'male' or 'female'" });
+    }
+
+    if (bio !== undefined && (typeof bio !== 'string' || bio.length > 300)) {
+      return res.status(400).json({ message: 'Bio must be 300 characters or fewer.' });
+    }
+    if (profileImage !== undefined && profileImage !== ''
+        && (typeof profileImage !== 'string' || !PROFILE_IMAGE_PATTERN.test(profileImage))) {
+      return res.status(400).json({ message: 'Choose a profile image from the available avatars.' });
     }
 
     const user = await User.findById(req.user.id);
@@ -293,8 +355,8 @@ exports.setupProfile = async (req, res) => {
     }
 
     // Check if username is already taken (by another user)
-    if (user.username !== username) {
-      const existingUser = await User.findOne({ username, _id: { $ne: req.user.id } });
+    if (user.username !== normalizedUsername) {
+      const existingUser = await User.findOne({ username: normalizedUsername, _id: { $ne: req.user.id } });
       if (existingUser) {
         return res.status(400).json({ message: "Username is already taken" });
       }
@@ -322,21 +384,15 @@ exports.setupProfile = async (req, res) => {
       return res.status(500).json({ message: "Unable to generate unique UID. Please try again." });
     }
 
-    console.log('Generated UID:', uid);
-
-    user.name = fullName;
-    user.username = username;
+    user.name = normalizedFullName;
+    user.username = normalizedUsername;
     user.uid = uid;
     user.gender = gender;
     user.bio = bio || user.bio;
     user.profileImage = profileImage || user.profileImage;
     user.profileSetupComplete = true;
     
-    console.log('Saving user with data:', { name: user.name, username: user.username, uid: user.uid });
-    
     await user.save();
-
-    console.log('User saved successfully');
 
     res.json({ 
       message: "Profile setup complete",
@@ -356,17 +412,35 @@ exports.setupProfile = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Setup profile error:', err);
-    console.error('Error details:', err.message);
-    console.error('Error stack:', err.stack);
-    res.status(500).json({ message: "Server error: " + err.message });
+    logAuthFailure('profile setup', err);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
 // Update profile
 exports.updateProfile = async (req, res) => {
   try {
-    const { fullName, username, bio, profileImage, isPublic } = req.body;
+    const payload = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+    const { fullName, username, bio, profileImage, isPublic } = payload;
+    const normalizedFullName = typeof fullName === 'string' ? fullName.trim() : fullName;
+    const normalizedUsername = typeof username === 'string' ? username.trim() : username;
+
+    if (fullName !== undefined && (typeof fullName !== 'string' || !normalizedFullName || normalizedFullName.length > 80)) {
+      return res.status(400).json({ message: 'Name must contain 1–80 characters.' });
+    }
+    if (username !== undefined && (typeof username !== 'string' || !/^[a-zA-Z0-9_]{1,24}$/.test(normalizedUsername))) {
+      return res.status(400).json({ message: 'Username must contain 1–24 letters, numbers, or underscores.' });
+    }
+    if (bio !== undefined && (typeof bio !== 'string' || bio.length > 300)) {
+      return res.status(400).json({ message: 'Bio must be 300 characters or fewer.' });
+    }
+    if (profileImage !== undefined
+        && (typeof profileImage !== 'string' || !PROFILE_IMAGE_PATTERN.test(profileImage))) {
+      return res.status(400).json({ message: 'Choose a profile image from the available avatars.' });
+    }
+    if (isPublic !== undefined && typeof isPublic !== 'boolean') {
+      return res.status(400).json({ message: 'Profile visibility must be true or false.' });
+    }
     
     const user = await User.findById(req.user.id);
     if (!user) {
@@ -374,23 +448,24 @@ exports.updateProfile = async (req, res) => {
     }
 
     // Check if name or username is being changed
-    const nameChanged = (fullName && fullName !== user.name) || (username && username !== user.username);
+    const nameChanged = (normalizedFullName && normalizedFullName !== user.name)
+      || (normalizedUsername && normalizedUsername !== user.username);
     
     if (nameChanged && user.nameChangeCount >= 3) {
       return res.status(400).json({ message: "Maximum name changes reached (3/3)" });
     }
 
     // Check if new username is already taken
-    if (username && username !== user.username) {
-      const existingUser = await User.findOne({ username, _id: { $ne: req.user.id } });
+    if (normalizedUsername && normalizedUsername !== user.username) {
+      const existingUser = await User.findOne({ username: normalizedUsername, _id: { $ne: req.user.id } });
       if (existingUser) {
         return res.status(400).json({ message: "Username is already taken" });
       }
     }
 
     // Update fields
-    if (fullName) user.name = fullName;
-    if (username) user.username = username;
+    if (normalizedFullName) user.name = normalizedFullName;
+    if (normalizedUsername) user.username = normalizedUsername;
     if (bio !== undefined) user.bio = bio;
     if (profileImage) user.profileImage = profileImage;
     if (isPublic !== undefined) user.isPublic = isPublic;
@@ -418,7 +493,7 @@ exports.updateProfile = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Update profile error:', err);
+    logAuthFailure('profile update', err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -449,7 +524,7 @@ exports.searchUserByUid = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Search user error:', err);
+    logAuthFailure('user search', err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -458,169 +533,32 @@ exports.searchUserByUid = async (req, res) => {
 // Claim daily reward (XP Points)
 exports.claimDailyReward = async (req, res) => {
   try {
-    let user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+    const result = await claimDailyXp(req.user.id);
+    if (result.reason === 'USER_NOT_FOUND') return res.status(404).json({ message: 'User not found' });
+    if (!result.success) return res.status(400).json({
+      message: 'Already claimed today',
+      nextClaimDate: result.today,
+    });
 
-    // Initialize fields if needed
-    const initUpdates = {};
-    
-    if (typeof user.xpPoints !== 'number') {
-      initUpdates.xpPoints = 0;
-    }
-
-    if (!user.dailyRewards || typeof user.dailyRewards !== 'object') {
-      initUpdates['dailyRewards.currentDay'] = 0;
-      initUpdates['dailyRewards.lastClaimTime'] = null;
-      initUpdates['dailyRewards.lastClaimDate'] = null;
-    }
-
-    if (Object.keys(initUpdates).length > 0) {
-      user = await User.findByIdAndUpdate(
-        req.user.id,
-        { $set: initUpdates },
-        { new: true }
-      );
-    }
-
-    const now = new Date();
-    const todayDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
-    
-    // Check if already claimed today
-    if (user.dailyRewards.lastClaimDate === todayDate) {
-      return res.status(400).json({ 
-        message: 'Already claimed today',
-        nextClaimDate: todayDate
-      });
-    }
-
-    // Check if this is consecutive day or reset
-    const lastClaimDate = user.dailyRewards.lastClaimDate;
-    let currentDay = user.dailyRewards.currentDay || 0;
-    
-    if (lastClaimDate) {
-      const lastDate = new Date(lastClaimDate);
-      const daysDiff = Math.floor((now - lastDate) / (1000 * 60 * 60 * 24));
-      
-      // If missed a day, reset to day 0
-      if (daysDiff > 1) {
-        currentDay = 0;
-      }
-    }
-
-    // Daily rewards: Day 1-6: 50 XP, Day 7: 100 XP
-    const rewardAmounts = [50, 50, 50, 50, 50, 50, 100];
-    const reward = rewardAmounts[currentDay];
-    const nextDay = (currentDay + 1) % 7;
-
-    // Update using atomic operation
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      {
-        $inc: { xpPoints: reward },
-        $set: {
-          'dailyRewards.lastClaimTime': now,
-          'dailyRewards.lastClaimDate': todayDate,
-          'dailyRewards.currentDay': nextDay
-        }
-      },
-      { new: true }
-    );
-
-    res.json({
+    return res.json({
       message: 'Daily reward claimed!',
-      reward,
-      newXpBalance: updatedUser.xpPoints,
-      nextDay: nextDay + 1,
+      reward: result.reward,
+      newXpBalance: result.newXpBalance,
+      nextDay: result.nextDay,
       canClaimTomorrow: true,
+      canClaimAt: result.canClaimAt,
     });
   } catch (err) {
-    console.error('Claim daily reward error:', err);
+    logAuthFailure('daily reward claim', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
-// Watch ad and earn XP points
-exports.watchAd = async (req, res) => {
-  try {
-    let user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Initialize fields if needed
-    const initUpdates = {};
-    
-    if (typeof user.xpPoints !== 'number') {
-      initUpdates.xpPoints = 0;
-    }
-
-    if (!user.adsWatched || typeof user.adsWatched !== 'object') {
-      initUpdates['adsWatched.count'] = 0;
-      initUpdates['adsWatched.lastResetDate'] = null;
-    }
-
-    if (Object.keys(initUpdates).length > 0) {
-      user = await User.findByIdAndUpdate(
-        req.user.id,
-        { $set: initUpdates },
-        { new: true }
-      );
-    }
-
-    const now = new Date();
-    const todayDate = now.toISOString().split('T')[0]; // YYYY-MM-DD
-
-    // Reset count if it's a new day
-    if (user.adsWatched.lastResetDate !== todayDate) {
-      user = await User.findByIdAndUpdate(
-        req.user.id,
-        {
-          $set: {
-            'adsWatched.count': 0,
-            'adsWatched.lastResetDate': todayDate
-          }
-        },
-        { new: true }
-      );
-    }
-
-    // Check if user has reached daily limit
-    if (user.adsWatched.count >= 5) {
-      return res.status(400).json({ 
-        message: 'Daily ad limit reached (5/5)',
-        adsWatchedToday: user.adsWatched.count,
-        adsRemaining: 0
-      });
-    }
-
-    // Give 50 XP per ad
-    const xpReward = 50;
-
-    // Update user
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      {
-        $inc: { 
-          xpPoints: xpReward,
-          'adsWatched.count': 1
-        }
-      },
-      { new: true }
-    );
-
-    res.json({
-      message: 'Ad watched successfully!',
-      xpReward,
-      newXpBalance: updatedUser.xpPoints,
-      adsWatchedToday: updatedUser.adsWatched.count,
-      adsRemaining: 5 - updatedUser.adsWatched.count,
-    });
-  } catch (err) {
-    console.error('Watch ad error:', err);
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
+// No ad provider is configured. Never award XP based on a client-side timer.
+exports.watchAd = async (_req, res) => {
+  return res.status(503).json({
+    message: 'Ad rewards are unavailable until a verified ad provider is configured.',
+  });
 };
 
 // Get points info
@@ -631,7 +569,6 @@ exports.getPointsInfo = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Initialize fields if they don't exist
     let needsUpdate = false;
     const updates = {};
 
@@ -667,44 +604,43 @@ exports.getPointsInfo = async (req, res) => {
       }
     }
 
+    const now = new Date();
+    const todayDate = now.toISOString().split('T')[0];
+
+    // Filter out timestamps older than 24 hours
+    const adTimestamps = (user.adsWatched && Array.isArray(user.adsWatched.adTimestamps)) ? user.adsWatched.adTimestamps : [];
+    const validTimestamps = adTimestamps.filter(timestamp => {
+      const adTime = new Date(timestamp);
+      return (now - adTime) < 24 * 60 * 60 * 1000;
+    });
+
+    const availableSlots = Math.max(0, 5 - validTimestamps.length);
+
+    let nextAvailableTime = null;
+    if (validTimestamps.length >= 5) {
+      const oldestTimestamp = new Date(Math.min(...validTimestamps.map(t => new Date(t))));
+      nextAvailableTime = new Date(oldestTimestamp.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    let canClaimAt = (user.dailyRewards && user.dailyRewards.canClaimAt) || null;
+    if (user.dailyRewards && user.dailyRewards.lastClaimDate === todayDate && !canClaimAt) {
+      canClaimAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+      updates['dailyRewards.canClaimAt'] = canClaimAt;
+      needsUpdate = true;
+    }
+
+    if (validTimestamps.length !== adTimestamps.length || user.adsWatched?.count !== validTimestamps.length) {
+      updates['adsWatched.count'] = validTimestamps.length;
+      updates['adsWatched.adTimestamps'] = validTimestamps;
+      updates['adsWatched.canWatchAt'] = nextAvailableTime;
+      needsUpdate = true;
+    }
+
     if (needsUpdate) {
       user = await User.findByIdAndUpdate(
         req.user.id,
         { $set: updates },
         { new: true }
-      );
-    }
-
-    const now = new Date();
-
-    // Filter out timestamps older than 24 hours
-    const adTimestamps = user.adsWatched.adTimestamps || [];
-    const validTimestamps = adTimestamps.filter(timestamp => {
-      const adTime = new Date(timestamp);
-      const hoursSince = (now - adTime) / (1000 * 60 * 60);
-      return hoursSince < 24;
-    });
-
-    const availableSlots = 5 - validTimestamps.length;
-
-    // Calculate when the next slot will be available
-    let nextAvailableTime = null;
-    if (validTimestamps.length > 0 && validTimestamps.length >= 5) {
-      const oldestTimestamp = new Date(Math.min(...validTimestamps.map(t => new Date(t))));
-      nextAvailableTime = new Date(oldestTimestamp.getTime() + 24 * 60 * 60 * 1000);
-    }
-
-    // Update the count and timestamps if they changed
-    if (validTimestamps.length !== adTimestamps.length) {
-      await User.findByIdAndUpdate(
-        req.user.id,
-        {
-          $set: {
-            'adsWatched.count': validTimestamps.length,
-            'adsWatched.adTimestamps': validTimestamps,
-            'adsWatched.canWatchAt': nextAvailableTime,
-          }
-        }
       );
     }
 
@@ -714,7 +650,7 @@ exports.getPointsInfo = async (req, res) => {
       dailyRewards: {
         currentDay: (user.dailyRewards && user.dailyRewards.currentDay) || 0,
         lastClaimTime: user.dailyRewards && user.dailyRewards.lastClaimTime,
-        canClaimAt: user.dailyRewards && user.dailyRewards.canClaimAt,
+        canClaimAt: canClaimAt,
       },
       adsWatched: {
         count: validTimestamps.length,
@@ -724,8 +660,7 @@ exports.getPointsInfo = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('Get points info error:', err);
-    console.error('Error stack:', err.stack);
+    logAuthFailure('points read', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
@@ -734,52 +669,88 @@ exports.getPointsInfo = async (req, res) => {
 // Convert XP to G-THUNDER points
 exports.convertXpToGThunder = async (req, res) => {
   try {
-    const { xpAmount } = req.body;
-    
-    if (!xpAmount || xpAmount < 100) {
+    const { xpAmount } = req.body || {};
+    const requestId = req.body?.requestId === undefined ? crypto.randomUUID() : req.body.requestId;
+
+    if (!Number.isSafeInteger(xpAmount) || xpAmount < 100) {
       return res.status(400).json({ message: 'Minimum 100 XP required for conversion' });
     }
 
     if (xpAmount % 100 !== 0) {
       return res.status(400).json({ message: 'XP amount must be a multiple of 100' });
     }
-
-    let user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Initialize if needed
-    if (typeof user.xpPoints !== 'number') {
-      user.xpPoints = 0;
-    }
-    if (typeof user.gThunderPoints !== 'number') {
-      user.gThunderPoints = 20;
-    }
-
-    // Check if user has enough XP
-    if (user.xpPoints < xpAmount) {
-      return res.status(400).json({ 
-        message: 'Insufficient XP points',
-        currentXp: user.xpPoints,
-        required: xpAmount
-      });
+    if (typeof requestId !== 'string' || !requestId.trim() || requestId.length > 128) {
+      return res.status(400).json({ message: 'A valid conversion request id is required.' });
     }
 
     // Convert: 100 XP = 1 G-THUNDER
     const gThunderToAdd = xpAmount / 100;
-
-    // Update user
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      {
-        $inc: { 
-          xpPoints: -xpAmount,
-          gThunderPoints: gThunderToAdd
+    const session = await User.db.startSession();
+    let result;
+    try {
+      await session.withTransaction(async () => {
+        const idempotencyKey = `conversion:${requestId}`;
+        const existingTransaction = await RewardTransaction.findOne({
+          userId: req.user.id,
+          currency: 'xp',
+          idempotencyKey,
+        }).session(session);
+        if (existingTransaction) {
+          if (existingTransaction.amount !== -xpAmount) {
+            result = { conflict: true };
+            return;
+          }
+          const currentUser = await User.findById(req.user.id).session(session);
+          result = currentUser ? { updatedUser: currentUser, alreadyProcessed: true } : { missing: true };
+          return;
         }
-      },
-      { new: true }
-    );
+        const existingUser = await User.findById(req.user.id).session(session);
+        if (!existingUser) {
+          result = { missing: true };
+          return;
+        }
+        const defaults = {};
+        if (typeof existingUser.xpPoints !== 'number') defaults.xpPoints = 0;
+        if (typeof existingUser.gThunderPoints !== 'number') defaults.gThunderPoints = 20;
+        if (Object.keys(defaults).length) {
+          await User.updateOne({ _id: req.user.id }, { $set: defaults }, { session });
+        }
+        const updatedUser = await User.findOneAndUpdate(
+          { _id: req.user.id, xpPoints: { $gte: xpAmount } },
+          { $inc: { xpPoints: -xpAmount, gThunderPoints: gThunderToAdd } },
+          { new: true, session },
+        );
+        if (!updatedUser) {
+          const current = await User.findById(req.user.id).select('xpPoints').session(session);
+          result = current ? { insufficient: true, currentXp: current.xpPoints || 0 } : { missing: true };
+          return;
+        }
+        await RewardTransaction.create([{
+          userId: req.user.id,
+          currency: 'xp',
+          amount: -xpAmount,
+          source: 'conversion',
+          idempotencyKey,
+          relatedId: `xp-to-gthunder:${gThunderToAdd}`,
+          balanceAfter: updatedUser.xpPoints,
+        }], { session });
+        result = { updatedUser };
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (result?.missing) return res.status(404).json({ message: 'User not found' });
+    if (result?.conflict) return res.status(409).json({ message: 'This conversion id was already used for a different XP amount.' });
+    if (result?.insufficient) {
+      return res.status(400).json({
+        message: 'Insufficient XP points',
+        currentXp: result.currentXp,
+        required: xpAmount,
+      });
+    }
+    const updatedUser = result?.updatedUser;
+    if (!updatedUser) return res.status(503).json({ message: 'Conversion could not be saved. Please retry.' });
 
     res.json({
       message: 'Conversion successful!',
@@ -789,7 +760,7 @@ exports.convertXpToGThunder = async (req, res) => {
       newGThunderBalance: updatedUser.gThunderPoints,
     });
   } catch (err) {
-    console.error('Convert XP error:', err);
+    logAuthFailure('XP conversion', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
@@ -797,83 +768,89 @@ exports.convertXpToGThunder = async (req, res) => {
 // Complete level and earn XP
 exports.completeLevel = async (req, res) => {
   try {
-    const { course, phase, level, xpReward } = req.body;
-    
-    if (!course || !phase || !level || !xpReward) {
-      return res.status(400).json({ message: 'Missing required fields' });
+    const { course, phase, level, completionProof, userCode } = req.body || {};
+    if (typeof course !== 'string' || !Number.isInteger(phase) || !Number.isInteger(level)) {
+      return res.status(400).json({ message: 'A valid course, phase, and level are required' });
     }
 
-    const validCourses = ['html', 'css', 'javascript', 'python', 'java'];
-    if (!validCourses.includes(course.toLowerCase())) {
-      return res.status(400).json({ message: 'Invalid course' });
+    if (!verifyLevelCompletionProof(completionProof, {
+      userId: req.user.id,
+      course,
+      phase,
+      level,
+      userCode,
+    })) {
+      return res.status(403).json({ message: 'Validate this level again before claiming its reward' });
     }
 
-    let user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Initialize if needed
-    if (typeof user.xpPoints !== 'number') {
-      user.xpPoints = 0;
-    }
-    if (!user.levelProgress) {
-      user.levelProgress = {
-        html: { phase1: 1, phase2: 0, phase3: 0 },
-        css: { phase1: 0, phase2: 0, phase3: 0 },
-        javascript: { phase1: 0, phase2: 0, phase3: 0 },
-        python: { phase1: 0, phase2: 0, phase3: 0 },
-        java: { phase1: 0, phase2: 0, phase3: 0 },
-      };
-    }
-
-    const courseLower = course.toLowerCase();
-    const phaseKey = `phase${phase}`;
-    
-    // Check if level is already completed
-    const alreadyCompleted = user.completedLevels?.some(
-      cl => cl.course === courseLower && cl.phase === phase && cl.level === level
-    );
-
-    if (alreadyCompleted) {
-      return res.status(400).json({ message: 'Level already completed' });
-    }
-
-    // Update progress and award XP
-    const currentUnlocked = user.levelProgress[courseLower][phaseKey] || 1;
-    const newUnlocked = Math.max(currentUnlocked, level + 1);
-
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      {
-        $inc: { xpPoints: xpReward },
-        $set: { [`levelProgress.${courseLower}.${phaseKey}`]: newUnlocked },
-        $push: {
-          completedLevels: {
-            course: courseLower,
-            phase,
-            level,
-            xpEarned: xpReward,
-            completedAt: new Date()
-          }
+    const session = await User.db.startSession();
+    let result;
+    try {
+      await session.withTransaction(async () => {
+        const user = await User.findById(req.user.id).session(session);
+        if (!user) { result = { status: 404, body: { message: 'User not found' } }; return; }
+        const decision = getLevelCompletionDecision({ course, phase, level, user });
+        if (!decision.allowed) {
+          const isPhaseLocked = decision.reason === 'phase_locked';
+          const isLocked = isPhaseLocked || decision.reason === 'level_locked';
+          result = {
+            status: isLocked ? 403 : 400,
+            body: {
+              message: isPhaseLocked ? 'Complete the previous phase first'
+                : isLocked ? 'Complete the previous level first' : 'Invalid course, phase, or level',
+              unlockedLevel: decision.unlockedLevel,
+              previousPhase: decision.previousPhase,
+            },
+          };
+          return;
         }
-      },
-      { new: true }
-    );
+        if (decision.alreadyCompleted) {
+          result = { status: 200, body: {
+            message: 'This level was already completed', alreadyCompleted: true,
+            xpEarned: 0, newXpBalance: user.xpPoints || 0, nextLevelUnlocked: decision.unlockedLevel,
+          } };
+          return;
+        }
 
-    res.json({
-      message: 'Level completed successfully!',
-      xpEarned: xpReward,
-      newXpBalance: updatedUser.xpPoints,
-      nextLevelUnlocked: newUnlocked,
-    });
+        const xpReward = 50;
+        const progressUpdate = { [`levelProgress.${course}.${decision.phaseKey}`]: decision.nextUnlocked };
+        if (decision.nextPhaseKey) progressUpdate[`levelProgress.${course}.${decision.nextPhaseKey}`] = 1;
+        const updatedUser = await User.findOneAndUpdate(
+          { _id: req.user.id, completedLevels: { $not: { $elemMatch: { course, phase, level } } } },
+          {
+            $set: progressUpdate,
+            $push: { completedLevels: { course, phase, level, xpEarned: xpReward, completedAt: new Date() } },
+          },
+          { new: true, session },
+        );
+        if (!updatedUser) {
+          result = { status: 409, body: { message: 'Progress changed. Refresh and try again.' } };
+          return;
+        }
+        const reward = await awardXpOnce({
+          userId: req.user.id,
+          amount: xpReward,
+          source: 'level',
+          idempotencyKey: `level:${course}:${phase}:${level}`,
+          relatedId: `${course}:${phase}:${level}`,
+          session,
+        });
+        result = { status: 200, body: {
+          message: 'Level completed successfully!', xpEarned: reward.awarded ? xpReward : 0,
+          newXpBalance: reward.balance, nextLevelUnlocked: decision.nextUnlocked,
+        } };
+      });
+    } finally {
+      await session.endSession();
+    }
+    return res.status(result?.status || 503).json(result?.body || { message: 'Level reward could not be saved. Please retry.' });
   } catch (err) {
-    console.error('Complete level error:', err);
+    logAuthFailure('level completion', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
-// Get level progress
+// Get level progress (Phases 1-10)
 exports.getLevelProgress = async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
@@ -881,14 +858,18 @@ exports.getLevelProgress = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Initialize if needed
+    const defaultPhases = () => ({
+      phase1: 0, phase2: 0, phase3: 0, phase4: 0, phase5: 0,
+      phase6: 0, phase7: 0, phase8: 0, phase9: 0, phase10: 0
+    });
+
     if (!user.levelProgress) {
       user.levelProgress = {
-        html: { phase1: 1, phase2: 0, phase3: 0 },
-        css: { phase1: 0, phase2: 0, phase3: 0 },
-        javascript: { phase1: 0, phase2: 0, phase3: 0 },
-        python: { phase1: 0, phase2: 0, phase3: 0 },
-        java: { phase1: 0, phase2: 0, phase3: 0 },
+        html: { ...defaultPhases(), phase1: 1 },
+        css: defaultPhases(),
+        javascript: defaultPhases(),
+        python: defaultPhases(),
+        java: defaultPhases(),
       };
       await user.save();
     }
@@ -896,93 +877,15 @@ exports.getLevelProgress = async (req, res) => {
     res.json({
       levelProgress: user.levelProgress,
       completedLevels: user.completedLevels || [],
+      phaseLevelCounts: getPhaseLevelCounts(levelsRegistry),
     });
   } catch (err) {
-    console.error('Get level progress error:', err);
+    logAuthFailure('level progress read', err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
-// Submit computer mode game results (wins and losses against bots)
-exports.updateComputerGameResult = async (req, res) => {
-  try {
-    const { botName, outcome } = req.body;
-    
-    if (!botName || !outcome) {
-      return res.status(400).json({ message: 'Missing botName or outcome' });
-    }
-
-    const botNames = ['Beginner Bot', 'Lazy Compiler', 'Logic Bot', 'Flash Coder', 'Test Case Destroyer'];
-    const botIndex = botNames.indexOf(botName);
-
-    if (botIndex === -1) {
-      return res.status(400).json({ message: 'Invalid bot name' });
-    }
-
-    if (!['player_win', 'ai_win', 'draw'].includes(outcome)) {
-      return res.status(400).json({ message: 'Invalid game outcome' });
-    }
-
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    // Initialize arrays if they don't exist
-    if (!user.winsVsBots || user.winsVsBots.length !== 5) {
-      user.winsVsBots = [0, 0, 0, 0, 0];
-    }
-    if (!user.lossesVsBots || user.lossesVsBots.length !== 5) {
-      user.lossesVsBots = [0, 0, 0, 0, 0];
-    }
-
-    // Point rewards config based on difficulty/bot index
-    // 0: Beginner, 1: Lazy, 2: Logic, 3: Flash, 4: Destroyer
-    const rewards = [
-      { xp: 10, rp: 5, rpLoss: -2 }, // Beginner Bot
-      { xp: 15, rp: 8, rpLoss: -2 }, // Lazy Compiler
-      { xp: 25, rp: 15, rpLoss: -4 }, // Logic Bot
-      { xp: 40, rp: 25, rpLoss: -8 }, // Flash Coder
-      { xp: 60, rp: 40, rpLoss: -15 } // Test Case Destroyer
-    ];
-
-    const currentReward = rewards[botIndex];
-    let xpEarned = 0;
-    let rpEarned = 0;
-
-    if (outcome === 'player_win') {
-      user.winsVsBots[botIndex] += 1;
-      xpEarned = currentReward.xp;
-      rpEarned = currentReward.rp;
-    } else if (outcome === 'ai_win') {
-      user.lossesVsBots[botIndex] += 1;
-      rpEarned = currentReward.rpLoss; // Negative points
-    } else if (outcome === 'draw') {
-      xpEarned = 5;
-      rpEarned = 2;
-    }
-
-    // Update arrays in a way that Mongoose detects change
-    user.markModified('winsVsBots');
-    user.markModified('lossesVsBots');
-
-    // Update XP and Rank Points
-    user.xpPoints = (user.xpPoints || 0) + xpEarned;
-    user.rankPoints = Math.max(0, (user.rankPoints || 0) + rpEarned); // Don't drop below 0
-
-    await user.save();
-
-    res.json({
-      message: 'Computer game result updated successfully',
-      xpEarned,
-      rpEarned,
-      newXpBalance: user.xpPoints,
-      newRankPoints: user.rankPoints,
-      winsVsBots: user.winsVsBots,
-      lossesVsBots: user.lossesVsBots
-    });
-  } catch (err) {
-    console.error('Update computer game result error:', err);
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
-};
+// Browser-simulated outcomes are not authoritative and must never grant profile rewards.
+exports.updateComputerGameResult = async (_req, res) => res.status(503).json({
+  message: 'Computer match rewards are unavailable until match results can be verified by the server.',
+});

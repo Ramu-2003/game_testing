@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { X, Play, Trophy, Zap, BookOpen, Lock, Eye, Terminal, Trash2, CheckCircle2, AlertTriangle, ChevronRight } from 'lucide-react';
+import { X, Play, Trophy, Zap, BookOpen, Lock, Eye, Trash2 } from 'lucide-react';
 import { computerModeAPI, profileAPI } from '../utils/api';
 import { getSocket } from '../utils/socket';
+import { buildHtmlPreview, buildSubmissionPreview } from '../utils/livePreview';
 
 /* ── Theme map ─────────────────────────────────────────────────── */
 const THEMES = {
@@ -52,7 +53,7 @@ const BinaryPanel = ({ username, progress = 0, isTyping = false, color }) => {
           <div style={{ display: 'flex', gap: 4 }}>
             {['#ff5f56','#ffbd2e','#27c93f'].map(c => <div key={c} style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />)}
           </div>
-          <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#94a3b8', fontWeight: 600 }}>
+          <span style={{ fontFamily: 'monospace', fontSize: 15,  color: '#94a3b8', fontWeight: 600 }}>
             {username}.enc [ENCRYPTED]
           </span>
         </div>
@@ -64,7 +65,7 @@ const BinaryPanel = ({ username, progress = 0, isTyping = false, color }) => {
               borderRadius: 4, padding: '2px 8px',
             }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: color, animation: 'binaryPulse 0.5s infinite' }} />
-              <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color, fontWeight: 700 }}>TYPING...</span>
+              <span style={{ fontFamily: 'monospace', fontSize: 15,  color, fontWeight: 700 }}>TYPING...</span>
             </div>
           )}
           <Lock size={12} style={{ color: `${color}60` }} />
@@ -221,7 +222,6 @@ export default function CustomModeGamePage() {
 
   const [roomId]      = useState(() => rd.roomId || 'CUSTOM');
   const [myUserId, setMyUserId]   = useState(() => rd.userId || null);
-  const [myUsername]  = useState(() => localStorage.getItem('username') || 'YOU');
 
   const [challenge, setChallenge] = useState(() => rd.gameData?.challenge || null);
   const [loading, setLoading]     = useState(() => !rd.gameData?.challenge);
@@ -233,9 +233,11 @@ export default function CustomModeGamePage() {
 
   // Editor
   const [userCode, setUserCode]       = useState('');
+  const userCodeRef = useRef(userCode);
   const [testResults, setTestResults] = useState([]);
   const [outputData, setOutputData]   = useState([]); // per-test output detail
   const [allPassed, setAllPassed]     = useState(false);
+  const [completionProof, setCompletionProof] = useState(null);
   const [compiling, setCompiling]     = useState(false);
   const [logs, setLogs]               = useState([]);
   const [progress, setProgress]       = useState(0);
@@ -243,20 +245,6 @@ export default function CustomModeGamePage() {
   const [compiledOutput, setCompiledOutput] = useState('');
   const iframeRef = useRef(null);
   const expectedIframeRef = useRef(null);
-
-  useEffect(() => {
-    if (iframeRef.current && compiledOutput) {
-      const doc = iframeRef.current.contentDocument || iframeRef.current.contentWindow.document;
-      doc.open(); doc.write(compiledOutput); doc.close();
-    }
-  }, [compiledOutput]);
-
-  useEffect(() => {
-    if (expectedIframeRef.current && challenge?.expectedOutput) {
-      const doc = expectedIframeRef.current.contentDocument || expectedIframeRef.current.contentWindow.document;
-      doc.open(); doc.write(challenge.expectedOutput); doc.close();
-    }
-  }, [challenge]);
 
 
 
@@ -361,6 +349,7 @@ export default function CustomModeGamePage() {
 
     const onGameInit = (d) => {
       setChallenge(d.challenge);
+      setCompletionProof(null);
       setCurrentRound(d.currentRound);
       setPlayers(d.players || []);
       const tcLen = d.challenge?.testCases?.length || 0;
@@ -418,11 +407,12 @@ export default function CustomModeGamePage() {
     const onNextRound = (d) => {
       roundEndedRef.current = false;
       setChallenge(d.challenge);
+      setCompletionProof(null);
       setCurrentRound(d.round);
       const tcLen = d.challenge?.testCases?.length || 0;
       setTestResults(Array(tcLen).fill(null));
       setOutputData(Array(tcLen).fill(null));
-      setProgress(0); setUserCode(''); setAllPassed(false); setRoundModal(false);
+      setProgress(0); setUserCode(''); userCodeRef.current = ''; setAllPassed(false); setRoundModal(false);
       msCurRef.current = totalMs; setPlayerMs(totalMs);
       readingDoneRef.current = false;
       startReadingPhase();
@@ -470,7 +460,11 @@ export default function CustomModeGamePage() {
 
   // Handle typing events
   const handleCodeChange = (val) => {
+    userCodeRef.current = val;
     setUserCode(val);
+    setCompiledOutput(buildSubmissionPreview(language, val, challenge?.htmlCode || challenge?.expectedOutput));
+    setAllPassed(false);
+    setCompletionProof(null);
     const sock = getSocket();
     if (sock && myUserId && !isSpectator) {
       sock.emit('custom-player-typing', { roomId, userId: myUserId, isTyping: true });
@@ -484,10 +478,13 @@ export default function CustomModeGamePage() {
   const handleCompile = async () => {
     if (!userCode.trim() || isSpectator) { addLog('✍️ Write some code first!', 'error'); return; }
     setCompiling(true);
-    addLog('⚙️ Compiling & validating...', 'info');
-    setCompiledOutput(userCode);
+    setAllPassed(false);
+    setCompletionProof(null);
+    addLog('⚙️ Checking requirements...', 'info');
+    setCompiledOutput(buildSubmissionPreview(language, userCode, challenge?.htmlCode || challenge?.expectedOutput));
     try {
-      const res = await computerModeAPI.validateCode({ userCode, challenge, language, timeMinutes: roomTime, difficulty });
+      const res = await computerModeAPI.validateCode({ userCode, challenge, language, timeMinutes: roomTime, difficulty, roomId, mode: 'custom' });
+      if (userCodeRef.current !== userCode) return;
       const validation = res.data.validation || {};
       const rawResults = validation.testResults || [];
       const results    = rawResults.map(r => r.passed);
@@ -515,27 +512,33 @@ export default function CustomModeGamePage() {
         sock.emit('custom-player-progress', { roomId, userId: myUserId, progress: pct, testsPassed: cnt });
       }
 
-      if (cnt === tot && tot > 0) {
+      const proof = res.data.completionProof;
+      setCompletionProof(typeof proof === 'string' ? proof : null);
+      const canFinish = cnt === tot && tot > 0 && typeof proof === 'string';
+      if (canFinish) {
         setAllPassed(true);
         addLog(`✅ ALL ${tot}/${tot} TESTS PASSED! Click SUBMIT to WIN!`, 'success');
+      } else if (cnt === tot) {
+        setAllPassed(false);
+        addLog('⚠️ The round could not be verified. Run validation again.', 'warning');
       } else {
         setAllPassed(false);
         addLog(`⚠️ ${cnt}/${tot} tests passed. Fix remaining cases.`, 'warning');
       }
       (validation.errors || []).forEach(e => addLog(`  ${e.message}`, 'error'));
-    } catch (err) {
+    } catch {
       addLog('❌ Validation error — check your connection.', 'error');
     }
     setCompiling(false);
   };
 
   const handleSubmit = () => {
-    if (!allPassed || isSpectator) { addLog('❌ Pass all tests first!', 'error'); return; }
+    if (!allPassed || !completionProof || isSpectator) { addLog('❌ Pass all tests first!', 'error'); return; }
     stopTimer();
     addLog('🚀 SUBMITTED! System judging...', 'success');
     const sock = getSocket();
     if (sock && myUserId) {
-      sock.emit('custom-player-finished', { roomId, userId: myUserId });
+      sock.emit('custom-player-finished', { roomId, userId: myUserId, completionProof });
     }
   };
 
@@ -557,7 +560,7 @@ export default function CustomModeGamePage() {
       setTestResults(Array(challenge.testCases.length).fill(null));
       setOutputData(Array(challenge.testCases.length).fill(null));
     }
-  }, [challenge]);
+  }, [challenge, testResults.length]);
 
   if (loading || !challenge) return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: PAGE_BG, gap: 16 }}>
@@ -572,27 +575,9 @@ export default function CustomModeGamePage() {
   const timerColor = timerCrit ? '#ef4444' : ac;
 
   // Identify players
-  const myPlayer    = players.find(p => p.userId === myUserId);
   const opponents   = players.filter(p => p.userId !== myUserId && !p.isSpectator);
 
-  // ── FIX: If players not loaded yet, generate placeholder opponents from playerMode ──
-  const placeholderOpponents = opponents.length === 0 && !isSpectator
-    ? Array.from({ length: playerMode - 1 }, (_, i) => ({
-        userId: `placeholder-${i}`,
-        username: `Player ${i + 2}`,
-        progress: 0,
-        finished: false,
-      }))
-    : opponents;
-
-  const effectiveOpponents = opponents.length > 0 ? opponents : placeholderOpponents;
-  const opponentCount      = effectiveOpponents.length;
-
-  const gridCols = isSpectator
-    ? `repeat(${Math.min(playerMode, 4)}, 1fr)`
-    : opponentCount === 1 ? '42% 58%'
-    : opponentCount === 2 ? '34% 33% 33%'
-    : '28% 24% 24% 24%';
+  const effectiveOpponents = opponents;
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: PAGE_BG, color: 'white', overflow: 'hidden' }}>
@@ -765,7 +750,7 @@ export default function CustomModeGamePage() {
                   >
                     {compiling
                       ? <><div style={{ width: 11, height: 11, border: '2px solid rgba(255,255,255,0.55)', borderTopColor: 'white', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> RUNNING...</>
-                      : <><Play size={12} fill="white" /> RUN CODE</>}
+                      : <><Play size={12} fill="white" /> CHECK REQUIREMENTS</>}
                   </button>
 
                   <button
@@ -818,17 +803,17 @@ export default function CustomModeGamePage() {
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#07090e', padding: 10 }}>
                       <div style={{ display: previewTab === 'yours' ? 'block' : 'none', width: '100%', height: '100%' }}>
                         {compiledOutput ? (
-                          <iframe ref={iframeRef} title="your-output" sandbox="allow-same-origin allow-scripts"
+                          <iframe ref={iframeRef} title="Your live submission preview" srcDoc={compiledOutput} sandbox=""
                             style={{ width: '100%', height: '100%', border: 'none', background: 'white', borderRadius: 6 }} />
                         ) : (
                           <div style={{ height: '100%', background: '#0a0d14', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
-                            <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>Compile code to view live output.</span>
+                            <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>Your HTML/CSS preview updates as you type. Other languages show the submission note here.</span>
                           </div>
                         )}
                       </div>
                       <div style={{ display: previewTab === 'expected' ? 'block' : 'none', width: '100%', height: '100%' }}>
                         {challenge?.expectedOutput ? (
-                          <iframe ref={expectedIframeRef} title="expected-output" sandbox="allow-same-origin allow-scripts"
+                          <iframe ref={expectedIframeRef} title="Expected challenge output" srcDoc={buildHtmlPreview(challenge.expectedOutput)} sandbox=""
                             style={{ width: '100%', height: '100%', border: 'none', background: 'white', borderRadius: 6 }} />
                         ) : (
                           <div style={{ height: '100%', background: '#0a0d14', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -865,7 +850,7 @@ export default function CustomModeGamePage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {!outputData || outputData.length === 0 || !outputData.some(od => od !== null) ? (
                             <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '24px 0' }}>
-                              // Run your code to see test results
+                              {'//'} Run your code to see test results
                             </div>
                           ) : (
                             (challenge.testCases || []).map((tc, i) => {
@@ -909,7 +894,7 @@ export default function CustomModeGamePage() {
                                         </div>
                                       </div>
                                       <div>
-                                        <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 2 }}>Your Output</div>
+                                        <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 2 }}>Validation Report</div>
                                         <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 15, fontWeight: 700, color: passed ? '#10b981' : '#ef4444', background: passed ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', padding: '6px 10px', borderRadius: 4, wordBreak: 'break-all' }}>
                                           {od.actualOutput !== undefined ? JSON.stringify(od.actualOutput) : '—'}
                                         </div>
@@ -933,7 +918,7 @@ export default function CustomModeGamePage() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                           {!outputData || !outputData.some(od => od && od.stdout) ? (
                             <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '24px 0' }}>
-                              // No stdout output from your code
+                              {'//'} No stdout output from your code
                             </div>
                           ) : (
                             outputData.map((od, i) => (
@@ -1105,11 +1090,20 @@ export default function CustomModeGamePage() {
                 </div>
 
                 <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', padding: '12px 14px 4px', gap: 10 }}>
-                  {effectiveOpponents.map((opp, idx) => {
+                  {effectiveOpponents.length === 0 ? (
+                    <div role="status" style={{
+                      minHeight: 116, display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      justifyContent: 'center', gap: 8, padding: 16, textAlign: 'center',
+                      border: '1px dashed rgba(255,255,255,0.16)', borderRadius: 10,
+                      color: 'rgba(255,255,255,0.68)', fontFamily: 'monospace', fontSize: 13,
+                    }}>
+                      <span style={{ color: '#f97316', fontWeight: 800, letterSpacing: 1 }}>SYNCING ROOM PLAYERS</span>
+                      <span>Opponent progress will appear when the room connection is ready.</span>
+                    </div>
+                  ) : effectiveOpponents.map((opp, idx) => {
                     const oppColor   = PLAYER_COLORS[(idx + 1) % PLAYER_COLORS.length];
                     const isTyping   = opponentTyping[opp.userId] || false;
                     const oppProgress = opponentProgress[opp.userId] ?? opp.progress ?? 0;
-                    const isPlaceholder = opp.userId?.startsWith('placeholder-');
 
                     return (
                       <div key={opp.userId} style={{
@@ -1120,14 +1114,12 @@ export default function CustomModeGamePage() {
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: oppColor, boxShadow: `0 0 8px ${oppColor}`, animation: isPlaceholder ? 'pulse 2s infinite' : 'none' }} />
+                            <div style={{ width: 10, height: 10, borderRadius: '50%', background: oppColor, boxShadow: `0 0 8px ${oppColor}` }} />
                             <span style={{ fontFamily: 'Rajdhani,sans-serif', fontWeight: 800, fontSize: 16, color: oppColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>{opp.username}</span>
                           </div>
                           <div style={{ textAlign: 'right' }}>
                             {opp.finished ? (
                               <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#10b981' }}>✅ DONE</span>
-                            ) : isPlaceholder ? (
-                              <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.5)' }}>⏳ WAITING</span>
                             ) : (
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {isTyping && <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: oppColor }}>⌨️</span>}

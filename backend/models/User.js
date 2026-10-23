@@ -1,6 +1,19 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const phaseSchema = {
+    phase1: { type: Number, default: 0 },
+    phase2: { type: Number, default: 0 },
+    phase3: { type: Number, default: 0 },
+    phase4: { type: Number, default: 0 },
+    phase5: { type: Number, default: 0 },
+    phase6: { type: Number, default: 0 },
+    phase7: { type: Number, default: 0 },
+    phase8: { type: Number, default: 0 },
+    phase9: { type: Number, default: 0 },
+    phase10: { type: Number, default: 0 },
+};
+
 const userSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
@@ -9,7 +22,7 @@ const userSchema = new mongoose.Schema({
     uid: { type: String, unique: true, sparse: true },
     gender: { type: String, enum: ['male', 'female'], required: false },
     bio: { type: String, default: 'Add some things about you' },
-    profileImage: { type: String, default: '/assets/profile-images/human-01.png' },
+    profileImage: { type: String, default: '/assets/profile-images/male_human_01.png' },
     isPublic: { type: Boolean, default: true },
     nameChangeCount: { type: Number, default: 0 },
     rankPoints: { type: Number, default: 0 },
@@ -24,43 +37,37 @@ const userSchema = new mongoose.Schema({
         currentDay: { type: Number, default: 0 },
         lastClaimTime: { type: Date, default: null },
         lastClaimDate: { type: String, default: null }, // Store date as YYYY-MM-DD
+        canClaimAt: { type: Date, default: null },
     },
     adsWatched: {
         count: { type: Number, default: 0 },
         lastResetDate: { type: String, default: null }, // Store date as YYYY-MM-DD
+        adTimestamps: { type: [Date], default: [] },
+        canWatchAt: { type: Date, default: null },
     },
-    // Level Progress Tracking
+    // Level Progress Tracking (10 phases; each can grow to 100 levels)
     levelProgress: {
         html: {
-            phase1: { type: Number, default: 1 }, // Current unlocked level (1-5)
-            phase2: { type: Number, default: 0 },
-            phase3: { type: Number, default: 0 },
+            ...phaseSchema,
+            phase1: { type: Number, default: 1 }, // Phase 1 unlocked by default
         },
         css: {
-            phase1: { type: Number, default: 0 },
-            phase2: { type: Number, default: 0 },
-            phase3: { type: Number, default: 0 },
+            ...phaseSchema,
         },
         javascript: {
-            phase1: { type: Number, default: 0 },
-            phase2: { type: Number, default: 0 },
-            phase3: { type: Number, default: 0 },
+            ...phaseSchema,
         },
         python: {
-            phase1: { type: Number, default: 0 },
-            phase2: { type: Number, default: 0 },
-            phase3: { type: Number, default: 0 },
+            ...phaseSchema,
         },
         java: {
-            phase1: { type: Number, default: 0 },
-            phase2: { type: Number, default: 0 },
-            phase3: { type: Number, default: 0 },
+            ...phaseSchema,
         },
     },
     completedLevels: [{
         course: String, // 'html', 'css', 'javascript', 'python', 'java'
-        phase: Number, // 1, 2, 3
-        level: Number, // 1-12
+        phase: Number, // 1-10
+        level: Number, // 1-100
         xpEarned: Number,
         completedAt: { type: Date, default: Date.now }
     }],

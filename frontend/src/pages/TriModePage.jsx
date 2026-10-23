@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { User, Users, Bug, Target, Trophy, Crown } from "lucide-react";
+import { User, Users, Bug, Trophy } from "lucide-react";
 import { Navbar } from '../components/Navbar';
 import { Footer } from "../components/landing/Footer";
 import { CustomCursor } from "../components/landing/CustomCursor";
@@ -11,16 +11,6 @@ const PAGE_BG = {
   blue: "linear-gradient(135deg, #F0F9FF 0%, #E0F2FE 50%, #F0F9FF 100%)",
   green: "linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 50%, #F0FDF4 100%)",
   purple: "linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 50%, #FAF5FF 100%)",
-};
-
-/* ─── Default theme fallback ─── */
-const DEFAULT_THEME = {
-  thunder: "#8b0000",
-  asteroid: "#ff6b6b",
-  accent: "#ff5252",
-  ui: "#ff6b6b",
-  background:
-    "radial-gradient(circle at 50% 32%, rgba(220, 20, 60, 0.75), rgba(30, 5, 10, 0.96) 54%, #0a0005 100%)",
 };
 
 /* ─── Carousel ─── */

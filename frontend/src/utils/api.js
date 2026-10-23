@@ -10,6 +10,15 @@ const api = axios.create({
   },
 });
 
+export const getApiErrorMessage = (error, fallback) => {
+  const serverMessage = error?.response?.data?.message;
+  if (serverMessage) return serverMessage;
+  if (error?.code === 'ERR_NETWORK' || error?.request) {
+    return 'The game service is unreachable. Check that the backend is running, then retry.';
+  }
+  return fallback;
+};
+
 // Add token to requests if available
 api.interceptors.request.use(
   (config) => {
@@ -58,7 +67,6 @@ export const profileAPI = {
   setupProfile: (data) => api.post('/profile/setup', data),
   updateProfile: (data) => api.put('/profile', data),
   searchUserByUid: (uid) => api.get(`/user/${uid}`),
-  submitComputerGameResult: (data) => api.post('/profile/computer-game-result', data),
 };
 
 export default api;
@@ -68,8 +76,8 @@ export default api;
 export const pointsAPI = {
   getInfo: () => api.get('/points/info'),
   claimDaily: () => api.post('/points/claim-daily'),
-  watchAd: () => api.post('/points/watch-ad'),
-  convertXp: (xpAmount) => api.post('/points/convert-xp', { xpAmount }),
+  convertXp: (xpAmount, requestId) => api.post('/points/convert-xp', { xpAmount, requestId }),
+  getHistory: (params) => api.get('/rewards/history', { params }),
 };
 
 // Level Progress API
@@ -87,6 +95,11 @@ export const validationAPI = {
   validateJava: (data) => api.post('/validate/java', data),
 };
 
+// Isolated execution is separate from requirement validation and reward claims.
+export const runtimeAPI = {
+  run: (language, sourceCode) => api.post('/run/code', { language, sourceCode }),
+};
+
 // Computer Mode API
 export const computerModeAPI = {
   createRoom: (data) => api.post('/computer-mode/create-room', data),
@@ -97,4 +110,27 @@ export const computerModeAPI = {
   submitProgress: (roomId, data) => api.post(`/computer-mode/room/${roomId}/progress`, data),
   validateCode: (data) => api.post('/computer-mode/validate', data),
   getChallenge: (language, difficulty, timeMinutes, t) => api.get('/computer-mode/challenge', { params: { language, difficulty, timeMinutes, _t: t } }),
+};
+
+// Competitive modes and persistent global rankings
+export const leaderboardAPI = {
+  get: (params) => api.get('/leaderboards', { params }),
+};
+
+export const tournamentAPI = {
+  getState: () => api.get('/tournament/state'),
+  getProfile: () => api.get('/tournament/profile'),
+  enqueue: (data) => api.post('/tournament/queue', data),
+  cancelQueue: () => api.delete('/tournament/queue'),
+  getMatch: (matchId) => api.get(`/tournament/matches/${encodeURIComponent(matchId)}`),
+  submit: (matchId, code) => api.post(`/tournament/matches/${encodeURIComponent(matchId)}/submit`, { code }),
+};
+
+export const bugHunterAPI = {
+  getCatalog: () => api.get('/bug-hunter/catalog'),
+  getActive: () => api.get('/bug-hunter/attempts/active'),
+  start: (data) => api.post('/bug-hunter/attempts', data),
+  hint: (attemptId) => api.post(`/bug-hunter/attempts/${encodeURIComponent(attemptId)}/hint`),
+  submit: (attemptId, code) => api.post(`/bug-hunter/attempts/${encodeURIComponent(attemptId)}/submit`, { code }),
+  getStats: () => api.get('/bug-hunter/stats'),
 };

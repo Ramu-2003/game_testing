@@ -69,7 +69,7 @@ export const CustomCursor = ({ theme }) => {
       cursorRef.current = null;
       cursorDotRef.current = null;
     };
-  }, []); // Run only on mount/unmount
+  }, [theme]);
 
   // Update cursor color when theme changes
   useEffect(() => {

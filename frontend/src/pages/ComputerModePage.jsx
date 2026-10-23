@@ -99,7 +99,7 @@ const ModeCard = ({ type, ac, ui, onClick }) => {
         position: 'absolute', top: 20, right: 20,
         padding: '4px 12px', borderRadius: 20,
         background: `${cardAccent}20`, border: `1px solid ${cardAccent}40`,
-        fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: cardAccent,
+        fontFamily: 'monospace', fontSize: 16,  color: cardAccent,
         letterSpacing: 2, textTransform: 'uppercase', fontWeight: 700,
       }}>
         {isCreate ? 'HOST' : 'GUEST'}

@@ -1,5 +1,3 @@
-import React from 'react';
-
 // Premium 3D-styled crossed swords icon for HOST / Battle modes
 export const Swords3DIcon = ({ size = 80 }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">

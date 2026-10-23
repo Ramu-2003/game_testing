@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Navbar } from "../components/Navbar";
 import { Footer } from "../components/landing/Footer";
 import { CustomCursor } from "../components/landing/CustomCursor";
 import { levelsAPI } from "../utils/api";
+import curriculumLimits from "../config/curriculumLimits";
 
 const PAGE_BG = {
   red: "#0d0305",
@@ -149,40 +150,46 @@ const PhasesModePage = () => {
     localStorage.setItem('themeKey', themeKey);
   }, [themeKey]);
 
-  const [phaseUnlockStatus, setPhaseUnlockStatus] = useState(Array(10).fill(false));
+  const [phaseUnlockStatus, setPhaseUnlockStatus] = useState([true, ...Array(curriculumLimits.phaseCount - 1).fill(false)]);
+  const [phaseLevelCounts, setPhaseLevelCounts] = useState(Array(curriculumLimits.phaseCount).fill(10));
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    fetchPhaseProgress();
-  }, [courseId]);
-
-  const PHASE_LEVEL_COUNTS = [10, 10, 10, 10, 10, 10, 10, 10, 10, 10]; // Levels per phase
-
-  const fetchPhaseProgress = async () => {
+  const fetchPhaseProgress = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await levelsAPI.getProgress();
       const completed = response.data.completedLevels || [];
+      const levelProgress = response.data.levelProgress?.[courseId] || {};
+      const phaseCounts = response.data.phaseLevelCounts?.[courseId] || {};
+      const requiredCounts = Array.from({ length: curriculumLimits.phaseCount }, (_, index) => (
+        Number(phaseCounts[`phase${index + 1}`]) || 0
+      ));
+      setPhaseLevelCounts(requiredCounts);
       
       const unlockStatus = [true]; // Phase 1 always unlocked
       
       // Check each phase to see if previous phase is completed
-      for (let phase = 1; phase < 10; phase++) {
-        const prevPhaseCompleted = completed.filter(
-          cl => cl.course === courseId && cl.phase === phase
-        );
-        const requiredLevels = PHASE_LEVEL_COUNTS[phase - 1];
-        unlockStatus.push(prevPhaseCompleted.length >= requiredLevels);
+      for (let phase = 1; phase < curriculumLimits.phaseCount; phase++) {
+        const prevPhaseCompleted = new Set(completed
+          .filter((cl) => cl.course === courseId && cl.phase === phase)
+          .map((cl) => cl.level));
+        const requiredLevels = requiredCounts[phase - 1];
+        const phaseWasStarted = Number(levelProgress[`phase${phase + 1}`]) > 0;
+        unlockStatus.push(phaseWasStarted || (requiredLevels > 0 && prevPhaseCompleted.size >= requiredLevels));
       }
       
       setPhaseUnlockStatus(unlockStatus);
     } catch (error) {
       console.error('Error fetching phase progress:', error);
-      setPhaseUnlockStatus([true, ...Array(9).fill(false)]);
+      setPhaseUnlockStatus([true, ...Array(curriculumLimits.phaseCount - 1).fill(false)]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [courseId]);
+
+  useEffect(() => {
+    fetchPhaseProgress();
+  }, [fetchPhaseProgress]);
 
   const themes = {
     red: {
@@ -218,7 +225,8 @@ const PhasesModePage = () => {
   const currentTheme = themes[themeKey];
   const pageBg = PAGE_BG[themeKey] || "#fff5f5";
   const courseInfo = COURSE_INFO[courseId] || { name: "COURSE", levels: 59 };
-  const totalPhases = 10; // 10 phases for HTML course
+  const totalPhases = curriculumLimits.phaseCount;
+  const totalCourseLevels = phaseLevelCounts.reduce((total, count) => total + count, 0);
 
   const handlePhaseStart = (phaseNumber) => {
     if (phaseUnlockStatus[phaseNumber - 1]) {
@@ -312,7 +320,7 @@ const PhasesModePage = () => {
             className="mt-4 font-mono text-gray-500 uppercase tracking-[0.22em]"
             style={{ fontSize: "11px" }}
           >
-            {totalPhases} PHASES · {courseInfo.levels} TOTAL LEVELS · PROGRESSIVE DIFFICULTY
+            {totalPhases} PHASES · {totalCourseLevels} TOTAL LEVELS · PROGRESSIVE DIFFICULTY
           </p>
         </div>
 
@@ -321,7 +329,7 @@ const PhasesModePage = () => {
           {Array.from({ length: totalPhases }, (_, i) => {
             const phaseNumber = i + 1;
             const isLocked = !phaseUnlockStatus[i];
-            const totalLevels = PHASE_LEVEL_COUNTS[i];
+            const totalLevels = phaseLevelCounts[i] || 0;
             
             return (
               <PhaseCard

@@ -1,19 +1,14 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { CustomCursor } from '../components/landing/CustomCursor';
 import {
   Copy, Check, User, Clock, Target, Code, ChevronLeft,
   AlertCircle, Hash, Lock, Send, MessageSquare, Play, Shield,
-  Wifi, Crown, Eye, EyeOff, Users
+  Wifi, Eye, EyeOff, Users
 } from 'lucide-react';
 import { profileAPI } from '../utils/api';
-import {
-  initializeSocket, setPlayerReady, leaveRoom,
-  onPlayerJoined, onPlayerLeft, onPlayerStatusChanged,
-  onGameStarting, sendChatMessage, onChatMessage
-} from '../utils/socket';
-import { getSocket } from '../utils/socket';
+import { initializeSocket, getSocket } from '../utils/socket';
 
 
 const THEMES = {
@@ -31,19 +26,35 @@ const ROOM_EXPIRY_SECONDS = 900;
 function customCreateRoom(roomId, roomData, userId, username) {
   const sock = getSocket();
   return new Promise((resolve, reject) => {
+    const cleanup = () => { clearTimeout(timeout); sock.off('custom-room-created', onCreated); };
+    const onCreated = (result) => {
+      cleanup();
+      if (result?.success) {
+        if (result.charged) window.dispatchEvent(new Event('pointsUpdated'));
+        resolve(result);
+      }
+      else reject(new Error(result?.message || 'Room creation failed'));
+    };
+    const timeout = setTimeout(() => { cleanup(); reject(new Error('Room creation timeout')); }, 6000);
+    sock.once('custom-room-created', onCreated);
     sock.emit('custom-create-room', { roomId, roomData, userId, username });
-    sock.once('custom-room-created', resolve);
-    setTimeout(() => reject(new Error('Room creation timeout')), 6000);
   });
 }
 
 function customJoinRoom(roomId, password, userId, username) {
   const sock = getSocket();
   return new Promise((resolve, reject) => {
+    const onJoined = (result) => { cleanup(); resolve(result); };
+    const onJoinError = (error) => { cleanup(); reject(new Error(error.message)); };
+    const cleanup = () => {
+      clearTimeout(timeout);
+      sock.off('custom-room-joined', onJoined);
+      sock.off('custom-join-error', onJoinError);
+    };
+    const timeout = setTimeout(() => { cleanup(); reject(new Error('Join room timeout')); }, 6000);
+    sock.once('custom-room-joined', onJoined);
+    sock.once('custom-join-error', onJoinError);
     sock.emit('custom-join-room', { roomId, password, userId, username });
-    sock.once('custom-room-joined', resolve);
-    sock.once('custom-join-error', e => reject(new Error(e.message)));
-    setTimeout(() => reject(new Error('Join room timeout')), 6000);
   });
 }
 
@@ -84,7 +95,6 @@ const CustomModeLobbyPage = () => {
   const [expirySeconds, setExpirySeconds] = useState(ROOM_EXPIRY_SECONDS);
   const [roomExpired, setRoomExpired] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
-  const [spectators, setSpectators] = useState([]);
 
   const [chatMessages, setChatMessages] = useState([
     { id: 0, from: 'SYSTEM', text: '⚔️ Welcome to the Custom Mode lobby — Human vs Human! Share your Room ID to invite opponents.', isSystem: true, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
@@ -96,6 +106,9 @@ const CustomModeLobbyPage = () => {
   const [roomPassword] = useState(() => roomData.isJoining ? (roomData.password || '') : (roomData.roomPassword || Math.random().toString(36).substr(2, 6).toUpperCase()));
 
   const totalPlayers = roomState?.settings?.playerMode || roomData.playerMode || 2;
+  const [initialRoomContext] = useState(() => ({
+    roomData, roomId, roomPassword, totalPlayers: roomData.playerMode || 2, navigate,
+  }));
   const playersReady = roomState?.players?.filter(p => p.ready && !p.isSpectator).length || 0;
   const activePlayers = roomState?.players?.filter(p => !p.isSpectator) || [];
 
@@ -126,6 +139,7 @@ const CustomModeLobbyPage = () => {
 
   // Initialize
   useEffect(() => {
+    const { roomData, roomId, roomPassword, totalPlayers, navigate } = initialRoomContext;
     let active = true;
     const init = async () => {
       try {
@@ -225,7 +239,7 @@ const CustomModeLobbyPage = () => {
       sock.off('custom-game-starting', onStarting);
       sock.off('custom-chat-message', onChat);
     };
-  }, []);
+  }, [initialRoomContext]);
 
   const handleReadyChange = (checked) => {
     setAccepted(checked);
@@ -276,8 +290,15 @@ const CustomModeLobbyPage = () => {
     };
     setChatMessages(m => [...m, msg]);
     const sock = getSocket();
-    sock.emit('custom-send-chat', { roomId, message: { ...msg, isMine: false } });
+    sock.emit('custom-send-chat', { roomId, message: { ...msg, userId, isMine: false } });
     setChatInput('');
+  };
+
+  const handleBackToCustomMode = () => {
+    if (roomState && roomId) {
+      getSocket().emit('custom-leave-room', { roomId, userId: userId || userIdRef.current });
+    }
+    navigate('/custom-mode');
   };
 
   const formatExpiry = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -311,12 +332,12 @@ const CustomModeLobbyPage = () => {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: ('#010d12') }}>
       <div style={{ textAlign: 'center', maxWidth: 400, padding: 32, ...cardStyle }}>
         <AlertCircle size={48} style={{ color: '#ef4444', marginBottom: 16 }} />
-        <h2 style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 22, color: '#ef4444', marginBottom: 12 }}>CONNECTION FAILED</h2>
+        <h2 style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 22, color: '#ef4444', marginBottom: 12 }}>{roomData.isJoining ? 'CONNECTION FAILED' : 'ROOM CREATION FAILED'}</h2>
         <p style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.8)', marginBottom: 20 }}>{error}</p>
-        <button onClick={() => navigate('/custom-mode')} style={{
+        <button onClick={handleBackToCustomMode} style={{
           width: '100%', padding: '12px 0', borderRadius: 10, border: 'none',
           background: ac, color: '#001a20', fontFamily: 'Rajdhani, sans-serif',
-          fontWeight: 800, textTransform: 'uppercase', cursor: 'pointer', fontSize: 16, fontWeight: 700,
+           textTransform: 'uppercase', cursor: 'pointer', fontSize: 16, fontWeight: 700,
         }}>Back to Custom Mode</button>
         <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
@@ -340,11 +361,11 @@ const CustomModeLobbyPage = () => {
         borderBottom: `1px solid ${ac}18`, flexShrink: 0, gap: 16, position: 'relative', zIndex: 10,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => navigate('/custom-mode')} style={{
+          <button onClick={handleBackToCustomMode} style={{
             display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px',
             borderRadius: 7, border: `1px solid ${ac}30`, background: `${ac}08`,
             color: ac, cursor: 'pointer', fontFamily: 'Rajdhani, sans-serif',
-            fontWeight: 700, fontSize: 16, fontWeight: 700,
+             fontSize: 16, fontWeight: 700,
           }}>
             <ChevronLeft size={14} /> BACK
           </button>
@@ -362,7 +383,7 @@ const CustomModeLobbyPage = () => {
               <Icon size={12} style={{ color: ac }} />
               <div>
                 <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase' }}>{label}</div>
-                <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 16, fontWeight: 700, color: 'white' }}>{value}</div>
+                <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'white' }}>{value}</div>
               </div>
               <button onClick={() => handleCopy(value)} style={{
                 width: 24, height: 24, borderRadius: 5, border: 'none',
@@ -396,7 +417,7 @@ const CustomModeLobbyPage = () => {
             <Clock size={12} style={{ color: expirySeconds < 60 ? '#ef4444' : `${ac}80` }} />
             <div>
               <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase' }}>ROOM EXPIRES</div>
-              <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 15, fontWeight: 700, color: expirySeconds < 60 ? '#ef4444' : 'rgba(255,255,255,0.7)' }}>
+              <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: expirySeconds < 60 ? '#ef4444' : 'rgba(255,255,255,0.7)' }}>
                 {formatExpiry(expirySeconds)}
               </div>
             </div>
@@ -406,10 +427,10 @@ const CustomModeLobbyPage = () => {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {profileImage
               ? <img src={profileImage} alt="You" style={{ width: 32, height: 32, borderRadius: '50%', border: `2px solid ${ac}`, objectFit: 'cover' }} />
-              : <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${ac}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 16, fontWeight: 700, color: ac }}>{username[0]}</div>
+              : <div style={{ width: 32, height: 32, borderRadius: '50%', background: `${ac}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: ac }}>{username[0]}</div>
             }
             <div>
-              <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, color: 'white' }}>{username}</div>
+              <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'white' }}>{username}</div>
               <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: isHost ? ac : 'rgba(255,255,255,0.6)' }}>
                 {isHost ? '👑 HOST' : 'PLAYER'}
               </div>
@@ -428,7 +449,7 @@ const CustomModeLobbyPage = () => {
             <div style={{ padding: '12px 16px', borderBottom: `1px solid ${ac}10`,
               display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
               <MessageSquare size={14} style={{ color: ac }} />
-              <span style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>LOBBY CHAT</span>
+              <span style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>LOBBY CHAT</span>
               <div style={{ marginLeft: 'auto', width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', animation: 'pulse 2s infinite' }} />
             </div>
 
@@ -522,7 +543,7 @@ const CustomModeLobbyPage = () => {
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px',
                 borderRadius: 20, background: `${ac}06`,
                 border: `1px solid ${ac}15`,
-                fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)',
+                fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)',
               }}>
                 <Icon size={12} style={{ color: ac }} /> {label}
               </div>
@@ -534,7 +555,7 @@ const CustomModeLobbyPage = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
               <User size={16} style={{ color: ac }} />
               <div>
-                <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 16, fontWeight: 700, textTransform: 'uppercase' }}>PLAYERS</div>
+                <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, textTransform: 'uppercase' }}>PLAYERS</div>
                 <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
                   {playersReady} / {totalPlayers} Ready
                 </div>
@@ -571,7 +592,7 @@ const CustomModeLobbyPage = () => {
                       )}
                     </div>
                     <div>
-                      <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, color: isMe ? ac : 'white' }}>
+                      <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: isMe ? ac : 'white' }}>
                         {player.username} {isMe && '(YOU)'}
                       </div>
                       <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: player.ready ? '#10b981' : 'rgba(255,255,255,0.6)', marginTop: 2 }}>
@@ -593,7 +614,7 @@ const CustomModeLobbyPage = () => {
                     fontFamily: 'Rajdhani, sans-serif', fontWeight: 900, fontSize: 18, color: `${ac}30` }}>
                     {activePlayers.length + i + 1}
                   </div>
-                  <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
+                  <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>
                     Waiting for player...
                   </div>
                   <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.1)' }}>SLOT OPEN</div>
@@ -608,14 +629,14 @@ const CustomModeLobbyPage = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                 <Eye size={16} style={{ color: `${ac}80` }} />
                 <div>
-                  <div style={{ fontFamily: 'Rajdhani, sans-serif', fontWeight: 800, fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase' }}>SPECTATOR ZONE (HOST ONLY)</div>
+                  <div style={{ fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase' }}>SPECTATOR ZONE (HOST ONLY)</div>
                   <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>Up to 5 spectator slots — optional</div>
                 </div>
                 <button onClick={handleSpectateToggle} style={{
                   marginLeft: 'auto', padding: '6px 14px', borderRadius: 8, border: `1px solid ${ac}30`,
                   background: isSpectator ? `${ac}18` : 'rgba(255,255,255,0.04)',
                   color: isSpectator ? ac : 'rgba(255,255,255,0.8)',
-                  fontFamily: 'Rajdhani, sans-serif', fontWeight: 700, fontSize: 15, fontWeight: 700,
+                  fontFamily: 'Rajdhani, sans-serif',  fontSize: 15, fontWeight: 700,
                   cursor: 'pointer', transition: 'all 0.2s',
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}>
@@ -630,7 +651,7 @@ const CustomModeLobbyPage = () => {
                   background: `${ac}08`, border: `1px solid ${ac}20`,
                   fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: `${ac}80`,
                 }}>
-                  🎭 You are spectating. You will watch all players' code during the battle — read only.
+                  🎭 You are spectating. You will watch all players’ code during the battle — read only.
                 </div>
               )}
             </div>
@@ -692,7 +713,7 @@ const CustomModeLobbyPage = () => {
                 </button>
               ) : (
                 <div style={{ padding: '10px 18px', borderRadius: 8, fontFamily: 'Rajdhani, sans-serif',
-                  fontWeight: 800, fontSize: 15, fontWeight: 700, textTransform: 'uppercase',
+                   fontSize: 15, fontWeight: 700, textTransform: 'uppercase',
                   color: ac, background: `${ac}10`, border: `1px solid ${ac}25` }}>
                   Waiting for host...
                 </div>

@@ -1,0 +1,11 @@
+[
+  { "name": "SYNTAX SPAMMER", "min": 0, "max": 500, "color": "#8c8c8c", "iconName": "Bug" },
+  { "name": "LOGIC RUNNER", "min": 500, "max": 1000, "color": "#cd7f32", "iconName": "Medal" },
+  { "name": "CODE BREAKER", "min": 1000, "max": 1500, "color": "#a3a3a3", "iconName": "Medal" },
+  { "name": "COMPILER CONQUEROR", "min": 1500, "max": 2000, "color": "#eab308", "iconName": "Star" },
+  { "name": "ALGORITHM SENTINEL", "min": 2000, "max": 2500, "color": "#38bdf8", "iconName": "Diamond" },
+  { "name": "NEURAL SHADOW", "min": 2500, "max": 3000, "color": "#00ffd4", "iconName": "Hexagon" },
+  { "name": "CYBER GLADIATOR", "min": 3000, "max": 3500, "color": "#a855f7", "iconName": "Crown" },
+  { "name": "AI SLAYER", "min": 3500, "max": 4000, "color": "#ec4899", "iconName": "Zap" },
+  { "name": "SYSTEM OVERLORD", "min": 4000, "max": null, "color": "#f97316", "iconName": "Trophy" }
+]

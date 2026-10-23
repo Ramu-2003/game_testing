@@ -23,7 +23,8 @@ export const GlobalParticleScene = ({ theme }) => {
   const mountRef = useRef(null);
 
   useEffect(() => {
-    if (!mountRef.current) return;
+    const mountElement = mountRef.current;
+    if (!mountElement) return;
 
     let renderer;
     let frameId = null;
@@ -46,8 +47,8 @@ export const GlobalParticleScene = ({ theme }) => {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
       renderer.setClearColor(0x000000, 0);
 
-      mountRef.current.innerHTML = '';
-      mountRef.current.appendChild(renderer.domElement);
+      mountElement.innerHTML = '';
+      mountElement.appendChild(renderer.domElement);
 
       // ── Particles ──────────────────────────────────────────────────────────
       // Expanded particle field spanning a much larger vertical area (Y axis)
@@ -170,8 +171,8 @@ export const GlobalParticleScene = ({ theme }) => {
         geometry.dispose();
         material.dispose();
         renderer.dispose();
-        if (mountRef.current?.contains(renderer.domElement)) {
-          mountRef.current.removeChild(renderer.domElement);
+        if (mountElement?.contains(renderer.domElement)) {
+          mountElement.removeChild(renderer.domElement);
         }
       };
     } catch (error) {

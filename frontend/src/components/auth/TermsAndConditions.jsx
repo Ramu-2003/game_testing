@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import './TermsAndConditions.css';
 
 const TermsAndConditions = ({ onAccept, onDecline }) => {
@@ -43,7 +43,7 @@ const TermsAndConditions = ({ onAccept, onDecline }) => {
               <p>
                 You are responsible for maintaining the confidentiality of your account
                 credentials. You must not share your account with others or use another
-                person's account. Any activity under your account is your responsibility.
+                person&apos;s account. Any activity under your account is your responsibility.
                 You must provide accurate information during registration.
               </p>
               <br />
@@ -80,7 +80,7 @@ const TermsAndConditions = ({ onAccept, onDecline }) => {
               <p>
                 Computer Mode enables real-time multiplayer coding battles. You agree to
                 compete fairly and honestly. Any attempt to manipulate room sessions,
-                exploit game mechanics, or disrupt other players' experience may result in
+                exploit game mechanics, or disrupt other players&apos; experience may result in
                 account suspension.
               </p>
               <br />

@@ -1,6 +1,6 @@
 import { Gamepad2 } from 'lucide-react';
 
-export const TriMode = ({ theme, id }) => {
+export const TriMode = ({ id }) => {
   // Professional content colors
   const contentTheme = {
     primary: '#8B5CF6', // Purple

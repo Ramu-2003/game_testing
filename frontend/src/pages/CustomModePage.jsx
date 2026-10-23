@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { CustomCursor } from '../components/landing/CustomCursor';
-import { PrismThemeToggle } from '../components/landing/PrismThemeToggle';
 import { Swords3DIcon, Target3DIcon } from '../components/landing/ModeIcons';
 import { PremiumIcon } from '../components/landing/PremiumIcon';
 
@@ -162,7 +161,7 @@ const ModeCard = ({ type, onClick, theme }) => {
         position: 'absolute', top: 18, right: 18,
         padding: '3px 10px', borderRadius: 20,
         background: `${cardAccent}18`, border: `1px solid ${cardAccent}35`,
-        fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: cardAccent,
+        fontFamily: 'monospace', fontSize: 15,  color: cardAccent,
         letterSpacing: 3, textTransform: 'uppercase', fontWeight: 700,
         display: 'flex', alignItems: 'center', gap: 6,
       }}>

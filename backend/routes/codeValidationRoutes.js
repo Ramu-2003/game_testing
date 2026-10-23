@@ -8,8 +8,11 @@ const {
   validateJavaCode
 } = require('../controllers/codeValidationController');
 const { protect } = require('../middleware/auth');
+const { runCode } = require('../controllers/runtimeController');
+const { runtimeLimiter } = require('../middleware/runtimeLimiter');
 
 // All validation routes are protected (require authentication)
+router.post('/run/code', protect, runtimeLimiter, runCode);
 
 // HTML validation
 router.post('/validate/html', protect, validateHTMLCode);

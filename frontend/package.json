@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "postbuild": "node scripts/prerenderLearn.mjs",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "export:curriculum": "node scripts/exportCurriculum.mjs",
+    "audit:curriculum": "node scripts/auditCurriculum.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "axios": "^1.13.5",
@@ -27,6 +31,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.27",
+        "esbuild": "^0.27.4",
     "eslint": "^9.39.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",

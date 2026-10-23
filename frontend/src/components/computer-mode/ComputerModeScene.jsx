@@ -5,7 +5,8 @@ export const ComputerModeScene = ({ theme }) => {
   const mountRef = useRef(null);
 
   useEffect(() => {
-    if (!mountRef.current) return;
+    const mountElement = mountRef.current;
+    if (!mountElement) return;
 
     try {
       const scene = new THREE.Scene();
@@ -21,8 +22,8 @@ export const ComputerModeScene = ({ theme }) => {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.2));
       renderer.setClearColor(0x000000, 0);
 
-      mountRef.current.innerHTML = '';
-      mountRef.current.appendChild(renderer.domElement);
+      mountElement.innerHTML = '';
+      mountElement.appendChild(renderer.domElement);
 
       camera.position.z = 3;
 
@@ -90,8 +91,8 @@ export const ComputerModeScene = ({ theme }) => {
         particlesMaterial.dispose();
         renderer.dispose();
 
-        if (mountRef.current?.contains(renderer.domElement)) {
-          mountRef.current.removeChild(renderer.domElement);
+        if (mountElement?.contains(renderer.domElement)) {
+          mountElement.removeChild(renderer.domElement);
         }
       };
     } catch (error) {

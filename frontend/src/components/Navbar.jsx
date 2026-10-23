@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import PropTypes from "prop-types";
 import { Zap, LogOut, Plus, ChevronDown } from "lucide-react";
 import { PrismThemeToggle } from "./landing/PrismThemeToggle";
 import { profileAPI, pointsAPI } from "../utils/api";
 
-const Navbar = ({ currentPage, themeKey, setThemeKey, themes: passedThemes, currentTheme: passedTheme }) => {
+const Navbar = ({ currentPage, themeKey, setThemeKey, themes: passedThemes }) => {
   const DEFAULT_THEMES = {
     red:    { accent: '#ff5252', ui: '#ff6b6b' },
     blue:   { accent: '#0099ff', ui: '#00ccff' },
@@ -24,6 +25,8 @@ const Navbar = ({ currentPage, themeKey, setThemeKey, themes: passedThemes, curr
 
   const navigate = useNavigate();
   const [isGameModeOpen, setIsGameModeOpen] = useState(false);
+  const [isCompeteOpen, setIsCompeteOpen] = useState(false);
+  const competeMenuRef = useRef(null);
   const [profileImage, setProfileImage] = useState(null);
   const [xpPoints, setXpPoints] = useState(0);
   const [gThunderPoints, setGThunderPoints] = useState(0);
@@ -89,6 +92,26 @@ const Navbar = ({ currentPage, themeKey, setThemeKey, themes: passedThemes, curr
   };
 
   const isDashboard = currentPage === 'dashboard';
+  const competeRoutes = [
+    { label: 'LEADERBOARD', path: '/leaderboard', page: 'leaderboard' },
+    { label: 'TOURNAMENT MODE', path: '/tournament', page: 'tournament' },
+    { label: 'BUG HUNTER ARENA', path: '/bug-hunter', page: 'bug-hunter' },
+  ];
+
+  useEffect(() => {
+    const handlePointerDown = (event) => {
+      if (!competeMenuRef.current?.contains(event.target)) setIsCompeteOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsCompeteOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   return (
     <header
@@ -247,13 +270,22 @@ const Navbar = ({ currentPage, themeKey, setThemeKey, themes: passedThemes, curr
             )}
           </div>
           
-          <button
-            onClick={() => { if(window.location.pathname === '/dashboard') window.location.hash = 'leaderboard'; else navigate('/dashboard#leaderboard'); }}
-            className={`nav-btn relative tracking-wider transition-colors duration-300 bg-transparent border-none cursor-pointer p-0 font-techno text-[15px] font-semibold text-white/90 hover:text-white nav-btn-inactive`}
-            style={{ textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}
-          >
-            LEADERBOARD
-          </button>
+          <div className="relative" ref={competeMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsCompeteOpen((open) => !open)}
+              aria-expanded={isCompeteOpen}
+              aria-controls="compete-navigation-menu"
+              className={`nav-btn relative tracking-wider transition-colors duration-300 bg-transparent border-none cursor-pointer p-0 font-techno text-[15px] font-semibold flex items-center gap-1 ${competeRoutes.some((route) => route.page === currentPage) ? 'text-white nav-btn-active' : 'text-white/90 hover:text-white nav-btn-inactive'}`}
+              style={{ textShadow: "0 2px 12px rgba(0,0,0,0.8)" }}
+            >
+              COMPETE
+              <ChevronDown className="h-4 w-4 transition-transform duration-200" style={{ transform: isCompeteOpen ? 'rotate(180deg)' : 'rotate(0deg)' }} />
+            </button>
+            {isCompeteOpen && <nav id="compete-navigation-menu" aria-label="Competition pages" className="absolute top-full left-0 mt-3 min-w-[205px] rounded-lg py-2 backdrop-blur-md" style={{ background: 'rgba(10, 5, 25, 0.98)', border: `1px solid ${currentTheme.accent}55`, boxShadow: `0 8px 32px rgba(0,0,0,.85), 0 0 24px ${currentTheme.accent}22`, zIndex: 9999 }}>
+              {competeRoutes.map((route) => <button key={route.path} type="button" aria-current={currentPage === route.page ? 'page' : undefined} onClick={() => { setIsCompeteOpen(false); navigate(route.path); }} className="w-full px-4 py-2.5 text-left font-techno text-[13px] font-semibold tracking-wider text-white/80 transition-colors hover:bg-white/[.06] hover:text-white focus-visible:outline focus-visible:outline-2" style={{ borderLeft: currentPage === route.page ? `2px solid ${currentTheme.accent}` : '2px solid transparent' }}>{route.label}</button>)}
+            </nav>}
+          </div>
 
         </nav>
       </div>
@@ -407,6 +439,13 @@ const Navbar = ({ currentPage, themeKey, setThemeKey, themes: passedThemes, curr
       </div>
     </header>
   );
+};
+
+Navbar.propTypes = {
+  currentPage: PropTypes.string,
+  themeKey: PropTypes.string,
+  setThemeKey: PropTypes.func,
+  themes: PropTypes.object,
 };
 
 export { Navbar };

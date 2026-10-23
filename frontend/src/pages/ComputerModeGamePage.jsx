@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { X, Play, Trash2, Trophy, Zap, BookOpen, Lock } from 'lucide-react';
 import { computerModeAPI, profileAPI } from '../utils/api';
 import { getSocket } from '../utils/socket';
+import { buildHtmlPreview, buildSubmissionPreview } from '../utils/livePreview';
 
 // ─── Themes ───────────────────────────────────────────────────────────────────
 const THEMES = {
@@ -251,6 +252,7 @@ export default function ComputerModeGamePage() {
     if (roomId === 'SOLO' || rd.roomId === 'SOLO') return true;
     return !(rd.gameData?.challenge);
   });
+  const [loadError, setLoadError] = useState('');
 
   // ─── Reading Phase ───────────────────────────────────────────────────────
   const [readingPhase, setReadingPhase] = useState(false);
@@ -259,12 +261,14 @@ export default function ComputerModeGamePage() {
 
   // Editor
   const [userCode, setUserCode] = useState('');
+  const userCodeRef = useRef(userCode);
   const [logs, setLogs]         = useState([]);
   const [compiledOutput, setCompiledOutput] = useState('');
   const [testResults, setTestResults]       = useState(() =>
     (rd.gameData?.challenge?.testCases || []).map(() => false)
   );
   const [allPassed, setAllPassed]           = useState(false);
+  const [completionProof, setCompletionProof] = useState(null);
   const [compiling, setCompiling]           = useState(false);
   const [progress, setProgress]             = useState(0);
 
@@ -377,7 +381,8 @@ export default function ComputerModeGamePage() {
     if (roomId !== 'SOLO') return;
     if (readingPhase) return; // Don't tick bots during reading phase
     const iv = setInterval(() => {
-      const elSec = (totalMs - playerMs) / 1000;
+      const remainingMs = Math.max(0, msCurRef.current - (Date.now() - startRef.current));
+      const elSec = (totalMs - remainingMs) / 1000;
       let botFinished = false;
       setBots(prev => prev.map(b => {
         if (b.finished) { botFinished = true; return b; }
@@ -403,7 +408,7 @@ export default function ComputerModeGamePage() {
       }
     }, 300);
     return () => clearInterval(iv);
-  }, [loading, playerMs, totalMs, roomId, allPassed, readingPhase, username, language, difficulty, playerMode]);
+  }, [loading, totalMs, roomId, allPassed, readingPhase, username, language, difficulty, playerMode, navigate, stopTimer]);
 
   // Profile
   useEffect(() => {
@@ -423,6 +428,7 @@ export default function ComputerModeGamePage() {
 
     multiplayerInitDone.current = true;
     setChallenge(gd.challenge);
+    setCompletionProof(null);
     setCurrentRound(gd.currentRound || 1);
     setPlayers(gd.players || []);
     setTestResults((gd.challenge?.testCases || []).map(() => false));
@@ -449,8 +455,7 @@ export default function ComputerModeGamePage() {
     setLoading(false);
     // Start reading phase (after 500ms navigation buffer)
     setTimeout(() => startReadingPhase(), 500);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [difficulty, language, navigate, playerMode, rd.gameData, roomId, roomTime, startReadingPhase, stopTimer, totalMs, totalRounds, userId, username]);
 
   // WebSocket listeners
   useEffect(() => {
@@ -459,6 +464,7 @@ export default function ComputerModeGamePage() {
 
     const onGameInit = (d) => {
       setChallenge(d.challenge);
+      setCompletionProof(null);
       setCurrentRound(d.currentRound);
       setPlayers(d.players);
       setTestResults((d.challenge?.testCases || []).map(() => false));
@@ -475,8 +481,9 @@ export default function ComputerModeGamePage() {
     };
     const onNextRound = (d) => {
       roundEndedRef.current = false; setChallenge(d.challenge); setCurrentRound(d.round);
+      setCompletionProof(null);
       setTestResults((d.challenge?.testCases||[]).map(()=>false));
-      setProgress(0); setUserCode(''); setAllPassed(false); setRoundModal(false);
+      setProgress(0); setUserCode(''); userCodeRef.current = ''; setAllPassed(false); setRoundModal(false);
       msCurRef.current = totalMs; setPlayerMs(totalMs); startRef.current = Date.now();
       setBots(prev => prev.map(b => ({ ...b, progress: 0, finished: false, phase: 1 })));
       readingDoneRef.current = false;
@@ -541,8 +548,7 @@ export default function ComputerModeGamePage() {
       sock.off('game-state-tick', onGameStateTick);
       sock.off('game-over', onGameOver);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [difficulty, language, navigate, playerMode, rd.gameData, roomId, roomTime, startReadingPhase, stopTimer, totalMs, totalRounds, userId, username]);
 
   // Emit join-game for session tracking
   useEffect(() => {
@@ -559,69 +565,56 @@ export default function ComputerModeGamePage() {
       }, 2000);
       return () => clearInterval(interval);
     }
-  }, [roomId, userId, loading]);
+  }, [roomId, userId, rd.userId, loading]);
 
   // Solo challenge load
   useEffect(() => {
     if (roomId !== 'SOLO' || !loading) return;
     (async () => {
+      let challengeLoaded = false;
       try {
         const res = await computerModeAPI.getChallenge(language, difficulty, roomTime, Date.now());
         const ch  = res.data.challenge || res.data;
+        if (!ch?.id || !Array.isArray(ch.testCases) || ch.testCases.length === 0) {
+          throw new Error('The server returned an invalid challenge.');
+        }
         setChallenge(ch); setTestResults((ch?.testCases||[]).map(()=>false));
+        setLoadError('');
         addLog(`✅ ${difficulty} ${language} challenge loaded`, 'success');
-      } catch {
-        const n = difficulty==='Advanced'?5:difficulty==='Moderate'?4:3;
-        setChallenge({
-          title: `${language} ${difficulty} Challenge`,
-          objective: `Write a ${language} solution. Pass all ${n} test cases to submit.`,
-          testCases: Array.from({length:n},(_,i)=>({id:i+1,description:`Test case ${i+1}`})),
-          expectedOutput: `// ${language} output`,
-        });
-        setTestResults(Array.from({length:n},()=>false));
-        addLog('⚠️ Offline mode — local challenge loaded','warning');
+        challengeLoaded = true;
+      } catch (error) {
+        setLoadError(error.response?.data?.message || error.message || 'Could not load a challenge. Check the server connection and try again.');
+        addLog('❌ Challenge could not be loaded. Check the server connection and retry.', 'error');
       }
       setLoading(false);
-      startReadingPhase();
+      if (challengeLoaded) startReadingPhase();
     })();
-  }, [roomId, loading]);
+  }, [roomId, loading, language, difficulty, roomTime, addLog, startReadingPhase]);
+
+  const keyboardActionsRef = useRef(null);
 
   // Keyboard shortcuts
   useEffect(() => {
     const h = e => {
       if (readingPhase) return; // Block during reading phase
-      if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key==='Enter') { e.preventDefault(); if(!compiling&&!roundEndedRef.current) handleCompile(); }
-      if ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='Enter')  { e.preventDefault(); if(allPassed) handleSubmit(); }
+      if ((e.ctrlKey||e.metaKey) && !e.shiftKey && e.key==='Enter') { e.preventDefault(); if(!compiling&&!roundEndedRef.current) keyboardActionsRef.current?.handleCompile(); }
+      if ((e.ctrlKey||e.metaKey) && e.shiftKey && e.key==='Enter')  { e.preventDefault(); if(allPassed) keyboardActionsRef.current?.handleSubmit(); }
       if (e.key==='Escape') { e.preventDefault(); setExitModal(v=>!v); }
     };
     window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h);
   }, [compiling, allPassed, readingPhase]);
 
-  // Output iframes
-  useEffect(() => {
-    if (!iframeRef.current || !compiledOutput) return;
-    try {
-      const d = iframeRef.current.contentDocument;
-      if (d) { d.open(); d.write(compiledOutput); d.close(); }
-    } catch (err) { console.error(err); }
-  }, [compiledOutput, previewTab]);
-
-  useEffect(() => {
-    if (!expectedIframeRef.current || !challenge?.expectedOutput) return;
-    try {
-      const d = expectedIframeRef.current.contentDocument;
-      if (d) { d.open(); d.write(challenge.expectedOutput); d.close(); }
-    } catch (err) { console.error(err); }
-  }, [challenge?.expectedOutput, previewTab]);
-
-  const handleCompile = async () => {
+  const handleCompile = useCallback(async () => {
     if (!userCode.trim()) { addLog('✍️ Write some code first!','error'); return; }
     setCompiling(true);
+    setAllPassed(false);
+    setCompletionProof(null);
     setPreviewTab('yours');
-    addLog('⚙️ Compiling & validating...','info');
-    setCompiledOutput(userCode);
+    addLog('⚙️ Checking requirements...','info');
+    setCompiledOutput(buildSubmissionPreview(language, userCode, challenge?.htmlCode || challenge?.expectedOutput));
     try {
-      const res = await computerModeAPI.validateCode({ userCode, challenge, language, timeMinutes: roomTime, difficulty });
+      const res = await computerModeAPI.validateCode({ userCode, challenge, language, timeMinutes: roomTime, difficulty, roomId, mode: 'computer' });
+      if (userCodeRef.current !== userCode) return;
       const results = (res.data.validation?.testResults||[]).map(r=>r.passed);
       setTestResults(results);
       const cnt = results.filter(Boolean).length;
@@ -629,18 +622,32 @@ export default function ComputerModeGamePage() {
       const pct = tot>0?(cnt/tot)*100:0;
       setProgress(pct);
       if (roomId!=='SOLO') socket.emit('player-progress',{roomId,userId,progress:pct,testsPassed:cnt});
-      if (cnt===tot&&tot>0) { setAllPassed(true); addLog(`✅ ALL ${tot}/${tot} TESTS PASSED! Click SUBMIT to win!`,'success'); }
-      else { setAllPassed(false); addLog(`⚠️ ${cnt}/${tot} tests passed. Fix the remaining cases.`,'warning'); }
+      const proof = res.data.completionProof;
+      setCompletionProof(typeof proof === 'string' ? proof : null);
+      const canFinish = cnt === tot && tot > 0 && (roomId === 'SOLO' || typeof proof === 'string');
+      setAllPassed(canFinish);
+      if (canFinish) addLog(`✅ ALL ${tot}/${tot} TESTS PASSED! Click SUBMIT to win!`,'success');
+      else if (cnt === tot && roomId !== 'SOLO') addLog('⚠️ The round could not be verified. Run validation again.','warning');
+      else addLog(`⚠️ ${cnt}/${tot} tests passed. Fix the remaining cases.`,'warning');
       (res.data.validation?.errors||[]).forEach(e=>addLog(`  ${e.message}`,'error'));
     } catch { addLog('❌ Validation error — check your connection.','error'); }
     setCompiling(false);
+  }, [addLog, challenge, difficulty, language, roomId, roomTime, socket, userCode, userId]);
+
+  const handleCodeChange = (event) => {
+    const nextCode = event.target.value;
+    userCodeRef.current = nextCode;
+    setUserCode(nextCode);
+    setCompiledOutput(buildSubmissionPreview(language, nextCode, challenge?.htmlCode || challenge?.expectedOutput));
+    setAllPassed(false);
+    setCompletionProof(null);
   };
 
-  const handleSubmit = () => {
-    if (!allPassed) { addLog('❌ Pass all tests first!','error'); return; }
+  const handleSubmit = useCallback(() => {
+    if (!allPassed || (roomId !== 'SOLO' && !completionProof)) { addLog('❌ Pass all tests first!','error'); return; }
     stopTimer();
     addLog('🚀 SUBMITTED! System judging...','success');
-    if (roomId!=='SOLO') { socket.emit('player-finished',{roomId,userId}); return; }
+    if (roomId!=='SOLO') { socket.emit('player-finished',{roomId,userId,completionProof}); return; }
     const myTimeSec = (totalMs-playerMs)/1000;
     const fastestBot = bots.reduce((min,b)=>b.submitSecond<min?b.submitSecond:min,Infinity);
     const won = myTimeSec<fastestBot || !bots.some(b=>b.finished);
@@ -653,12 +660,20 @@ export default function ComputerModeGamePage() {
         timeUsed: totalMs-playerMs, totalRounds, language, difficulty, playerMode,
       },
     });
-  };
+  }, [allPassed, addLog, bots, completionProof, difficulty, language, navigate, playerMode, playerMs, roomId, socket, stopTimer, totalMs, totalRounds, userId, username]);
 
-  if (loading||!challenge) return (
-    <div style={{height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:pageBg,gap:16}}>
-      <div style={{width:52,height:52,border:`4px solid ${ac}25`,borderTopColor:ac,borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>
-      <p style={{fontFamily:'Rajdhani,sans-serif',fontSize:18,fontWeight:800,color:ac,letterSpacing:3,margin:0,textTransform:'uppercase'}}>LOADING BATTLE CHALLENGE...</p>
+  useEffect(() => {
+    keyboardActionsRef.current = { handleCompile, handleSubmit };
+  }, [handleCompile, handleSubmit]);
+
+  if (loading || !challenge) return (
+    <div style={{height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',background:pageBg,gap:16,padding:24,textAlign:'center'}}>
+      {loading && <div style={{width:52,height:52,border:`4px solid ${ac}25`,borderTopColor:ac,borderRadius:'50%',animation:'spin 0.8s linear infinite'}}/>}
+      <p style={{fontFamily:'Rajdhani,sans-serif',fontSize:18,fontWeight:800,color:loadError?'#fb7185':ac,letterSpacing:2,margin:0,textTransform:'uppercase'}}>
+        {loadError || (roomId === 'SOLO' ? 'Loading battle challenge...' : 'Waiting for game session...')}
+      </p>
+      {loadError && <button onClick={() => { setLoadError(''); setLoading(true); }} style={{padding:'12px 22px',borderRadius:10,border:`1px solid ${ac}55`,background:`${ac}18`,color:'white',fontFamily:'Rajdhani,sans-serif',fontSize:16,fontWeight:800,cursor:'pointer'}}>RETRY</button>}
+      <button onClick={() => navigate('/computer-mode')} style={{padding:'10px 18px',borderRadius:10,border:'1px solid rgba(255,255,255,0.16)',background:'transparent',color:'rgba(255,255,255,0.75)',fontFamily:'Rajdhani,sans-serif',fontSize:14,fontWeight:700,cursor:'pointer'}}>BACK TO MODES</button>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
@@ -685,7 +700,7 @@ export default function ComputerModeGamePage() {
       }}>
         <div style={{display:'flex',alignItems:'center',gap:6,padding:'0 14px',borderRight:'1px solid rgba(255,255,255,0.06)'}}>
           <Zap size={12} fill={ac} style={{color:ac}}/>
-          <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:900,fontSize: 15, fontWeight: 700,color:ac,letterSpacing:2,whiteSpace:'nowrap'}}>GAME IN MY STYLE</span>
+          <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,color:ac,letterSpacing:2,whiteSpace:'nowrap'}}>GAME IN MY STYLE</span>
         </div>
 
         {/* Round indicator */}
@@ -704,7 +719,7 @@ export default function ComputerModeGamePage() {
 
         {/* Title */}
         <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
-          <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,color:'white',textTransform:'uppercase',letterSpacing:1}}>{challenge.title}</span>
+          <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,color:'white',textTransform:'uppercase',letterSpacing:1}}>{challenge.title}</span>
           <span style={{fontFamily:'monospace',fontSize: 16, fontWeight: 700,padding:'2px 8px',borderRadius:3,background:`${ac}20`,color:ac}}>{language}</span>
           <span style={{fontFamily:'monospace',fontSize: 16, fontWeight: 700,padding:'2px 8px',borderRadius:3,background:'rgba(255,255,255,0.06)',color:'rgba(255,255,255,0.45)'}}>{difficulty}</span>
         </div>
@@ -713,7 +728,7 @@ export default function ComputerModeGamePage() {
         {readingPhase && (
           <div style={{display:'flex',alignItems:'center',gap:6,padding:'0 12px',borderLeft:'1px solid rgba(255,255,255,0.06)',color:'#10b981'}}>
             <BookOpen size={12}/>
-            <span style={{fontFamily:'monospace',fontSize: 16, fontWeight: 700,color:'#10b981',fontWeight:700}}>READING {readingCountdown}s</span>
+            <span style={{fontFamily:'monospace',fontSize: 16, color:'#10b981',fontWeight:700}}>READING {readingCountdown}s</span>
           </div>
         )}
 
@@ -754,7 +769,7 @@ export default function ComputerModeGamePage() {
            }}>
              <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
                <div style={{width:3,height:14,borderRadius:2,background:ac,flexShrink:0}}/>
-               <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,color:ac,textTransform:'uppercase',letterSpacing:2}}>CHALLENGE OBJECTIVE</span>
+               <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,color:ac,textTransform:'uppercase',letterSpacing:2}}>CHALLENGE OBJECTIVE</span>
              </div>
              <div style={{
                flex:1,overflowY:'auto',
@@ -793,25 +808,25 @@ export default function ComputerModeGamePage() {
                      <div key={c} style={{width:8,height:8,borderRadius:'50%',background:c}}/>
                    ))}
                  </div>
-                 <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,color:'#94a3b8',fontWeight:600}}>
+                 <span style={{fontFamily:'monospace',fontSize: 15, color:'#94a3b8',fontWeight:600}}>
                    solution.{ext(language)}
                  </span>
                </div>
                <div style={{display:'flex',alignItems:'center',gap:8}}>
                  {readingPhase && (
-                   <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,background:'rgba(16,185,129,0.15)',color:'#10b981',padding:'2px 8px',borderRadius:4,fontWeight:700,display:'flex',alignItems:'center',gap:4}}>
+                   <span style={{fontFamily:'monospace',fontSize: 15, background:'rgba(16,185,129,0.15)',color:'#10b981',padding:'2px 8px',borderRadius:4,fontWeight:700,display:'flex',alignItems:'center',gap:4}}>
                      <Lock size={8}/> LOCKED DURING READING
                    </span>
                  )}
-                 <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,background:`${ac}20`,color:ac,padding:'2px 8px',borderRadius:4,fontWeight:700,letterSpacing:0.5}}>{language}</span>
-                 <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,color:'#64748b'}}>Ctrl+Enter: Compile</span>
+                 <span style={{fontFamily:'monospace',fontSize: 15, background:`${ac}20`,color:ac,padding:'2px 8px',borderRadius:4,fontWeight:700,letterSpacing:0.5}}>{language}</span>
+                 <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,color:'#64748b'}}>Ctrl+Enter: Validate</span>
                </div>
              </div>
 
              {/* Textarea */}
              <textarea
                value={userCode}
-               onChange={e=>setUserCode(e.target.value)}
+               onChange={handleCodeChange}
                placeholder={readingPhase ? '// Editor locked during reading phase...' : `// ${challenge.objective}\n\n// Write your ${language} solution here...`}
                disabled={readingPhase}
                spellCheck={false}
@@ -837,7 +852,7 @@ export default function ComputerModeGamePage() {
                    padding:'12px 0',border:'none',borderRight:'1px solid rgba(255,255,255,0.06)',
                    background: readingPhase?'rgba(255,255,255,0.04)':compiling?'rgba(16,185,129,0.18)':'#10b981',
                    color: readingPhase?'rgba(255,255,255,0.6)':'white',cursor:compiling||readingPhase?'not-allowed':'pointer',
-                   fontFamily:'Rajdhani,sans-serif',fontWeight:900,fontSize: 15, fontWeight: 700,
+                   fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,
                    letterSpacing:2,textTransform:'uppercase',
                    display:'flex',alignItems:'center',justifyContent:'center',gap:7,
                    transition:'all 0.2s',
@@ -858,7 +873,7 @@ export default function ComputerModeGamePage() {
                    background: allPassed&&!readingPhase?`linear-gradient(135deg,${ac},${ui})`:'rgba(255,255,255,0.04)',
                    color: allPassed&&!readingPhase?'white':'rgba(255,255,255,0.6)',
                    cursor: allPassed&&!readingPhase?'pointer':'not-allowed',
-                   fontFamily:'Rajdhani,sans-serif',fontWeight:900,fontSize: 15, fontWeight: 700,
+                   fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,
                    letterSpacing:2,textTransform:'uppercase',
                    display:'flex',alignItems:'center',justifyContent:'center',gap:7,
                    boxShadow: allPassed&&!readingPhase?`0 0 20px 80`:'none',
@@ -873,7 +888,7 @@ export default function ComputerModeGamePage() {
                  style={{
                    padding:'12px 20px',border:'none',
                    background:'rgba(239,68,68,0.08)',color:'rgba(239,68,68,0.7)',
-                   cursor:'pointer',fontFamily:'Rajdhani,sans-serif',fontWeight:700,
+                   cursor:'pointer',fontFamily:'Rajdhani,sans-serif',
                    fontSize: 15, fontWeight: 700,letterSpacing:1,textTransform:'uppercase',
                    display:'flex',alignItems:'center',gap:5,transition:'all 0.2s',
                  }}
@@ -907,7 +922,7 @@ export default function ComputerModeGamePage() {
                  border:'none',outline:'none',padding:'6px 12px',borderRadius:6,
                  background: previewTab === 'yours' ? `${ac}1e` : 'transparent',
                  color: previewTab === 'yours' ? ac : '#94a3b8',
-                 fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,
+                 fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,
                  letterSpacing:1,cursor:'pointer',transition:'all 0.2s',
                  borderBottom: previewTab === 'yours' ? `2px solid ${ac}` : '2px solid transparent',
                }}>YOUR OUTPUT</button>
@@ -915,7 +930,7 @@ export default function ComputerModeGamePage() {
                  border:'none',outline:'none',padding:'6px 12px',borderRadius:6,
                  background: previewTab === 'expected' ? `${ac}1e` : 'transparent',
                  color: previewTab === 'expected' ? ac : '#94a3b8',
-                 fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,
+                 fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,
                  letterSpacing:1,cursor:'pointer',transition:'all 0.2s',
                  borderBottom: previewTab === 'expected' ? `2px solid ${ac}` : '2px solid transparent',
                }}>EXPECTED OUTPUT</button>
@@ -924,17 +939,17 @@ export default function ComputerModeGamePage() {
              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, background: '#07090e', padding: 10 }}>
                <div style={{ display: previewTab === 'yours' ? 'block' : 'none', width: '100%', height: '100%' }}>
                  {compiledOutput ? (
-                   <iframe ref={iframeRef} title="your-output" sandbox="allow-same-origin allow-scripts"
+                   <iframe ref={iframeRef} title="Your live submission preview" srcDoc={compiledOutput} sandbox=""
                      style={{ width: '100%', height: '100%', border: 'none', background: 'white', borderRadius: 6 }} />
                  ) : (
                    <div style={{ height: '100%', background: '#0a0d14', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
-                     <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>Compile code to view live output.</span>
+                     <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.6)' }}>Your HTML/CSS preview updates as you type. Other languages show the submission note here.</span>
                    </div>
                  )}
                </div>
                <div style={{ display: previewTab === 'expected' ? 'block' : 'none', width: '100%', height: '100%' }}>
                  {challenge?.expectedOutput ? (
-                   <iframe ref={expectedIframeRef} title="expected-output" sandbox="allow-same-origin allow-scripts"
+                   <iframe ref={expectedIframeRef} title="Expected challenge output" srcDoc={buildHtmlPreview(challenge.expectedOutput)} sandbox=""
                      style={{ width: '100%', height: '100%', border: 'none', background: 'white', borderRadius: 6 }} />
                  ) : (
                    <div style={{ height: '100%', background: '#0a0d14', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(255,255,255,0.05)' }}>
@@ -961,11 +976,11 @@ export default function ComputerModeGamePage() {
                display:'flex',alignItems:'center',justifyContent:'space-between',
              }}>
                <div style={{display:'flex',alignItems:'center',gap:6}}>
-                 <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:2.5}}>
+                 <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:2.5}}>
                    Execution Console
                  </span>
                  {logs.length>0 && (
-                   <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700.5,padding:'1px 6px',borderRadius:8,background:`${ac}20`,color:ac,fontWeight:700}}>{logs.length}</span>
+                   <span style={{fontFamily:'monospace',fontSize: 15, padding:'1px 6px',borderRadius:8,background:`${ac}20`,color:ac,fontWeight:700}}>{logs.length}</span>
                  )}
                </div>
                <button onClick={() => setLogs([])}
@@ -981,7 +996,7 @@ export default function ComputerModeGamePage() {
                background:'#07090e',lineHeight:1.6,
              }}>
                {logs.length===0
-                 ? <span style={{color:'rgba(255,255,255,0.6)'}}>No output logs yet. Compile your code to see feedback.</span>
+                 ? <span style={{color:'rgba(255,255,255,0.6)'}}>No validation feedback yet. Check your code to see the requirements report.</span>
                  : logs.map((l,i)=>(
                    <div key={i} style={{marginBottom:4,color:
                      l.type==='error'?'#ef4444':
@@ -1009,7 +1024,7 @@ export default function ComputerModeGamePage() {
            }}>
              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                <div>
-                 <div style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 16, fontWeight: 700,color: readingPhase?'#10b981':'#94a3b8',textTransform:'uppercase',letterSpacing:1.5,marginBottom:2}}>
+                 <div style={{fontFamily:'Rajdhani,sans-serif',fontSize: 16, fontWeight: 700,color: readingPhase?'#10b981':'#94a3b8',textTransform:'uppercase',letterSpacing:1.5,marginBottom:2}}>
                    {readingPhase ? '📖 READING TIME' : '⏱ TIME REMAINING'}
                  </div>
                  <div style={{
@@ -1048,7 +1063,7 @@ export default function ComputerModeGamePage() {
                    {readingPhase ? '🔒 Editor locked' : `${Math.round(progress)}% complete · ${testResults.filter(Boolean).length}/${testResults.length} tests`}
                  </span>
                  {allPassed && !readingPhase && (
-                   <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:900,fontSize: 16, fontWeight: 700,color:'#10b981',animation:'pulse 1s infinite',letterSpacing:0.5}}>
+                   <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 16, fontWeight: 700,color:'#10b981',animation:'pulse 1s infinite',letterSpacing:0.5}}>
                      ✅ READY TO SUBMIT
                    </span>
                  )}
@@ -1068,7 +1083,7 @@ export default function ComputerModeGamePage() {
              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
                <div style={{display:'flex',alignItems:'center',gap:6}}>
                  <div style={{width:2.5,height:12,borderRadius:2,background:'#10b981'}}/>
-                 <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,textTransform:'uppercase',letterSpacing:2,color:'white'}}>TEST CASES</span>
+                 <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,textTransform:'uppercase',letterSpacing:2,color:'white'}}>TEST CASES</span>
                </div>
                <div style={{
                  padding:'2px 8px',borderRadius:20,
@@ -1094,7 +1109,7 @@ export default function ComputerModeGamePage() {
                      width:18,height:18,borderRadius:'50%',flexShrink:0,
                      background: testResults[i]?'#10b981':'rgba(255,255,255,0.06)',
                      display:'flex',alignItems:'center',justifyContent:'center',
-                     fontWeight:700,fontSize: 16, fontWeight: 700,
+                     fontSize: 16, fontWeight: 700,
                      color: testResults[i]?'white':'rgba(255,255,255,0.6)',
                      boxShadow: testResults[i]?'0 0 6px rgba(16,185,129,0.4)':'none',
                      transition:'all 0.3s',
@@ -1127,7 +1142,7 @@ export default function ComputerModeGamePage() {
                background:'#07090e',flexShrink:0,
              }}>
                <div style={{width:2.5,height:12,borderRadius:2,background:'#f97316'}}/>
-               <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,color:'#f97316',textTransform:'uppercase',letterSpacing:2}}>
+               <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,color:'#f97316',textTransform:'uppercase',letterSpacing:2}}>
                  AI OPPONENTS
                </span>
                <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,color:'rgba(255,255,255,0.55)',marginLeft:4}}>
@@ -1171,7 +1186,7 @@ export default function ComputerModeGamePage() {
 
                        <div style={{flex:1,minWidth:0}}>
                          <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:1}}>
-                           <span style={{fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 16, fontWeight: 700,color:cfg.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{bot.name}</span>
+                           <span style={{fontFamily:'Rajdhani,sans-serif',fontSize: 16, fontWeight: 700,color:cfg.color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{bot.name}</span>
                            <span style={{fontFamily:'monospace',fontSize:7,padding:'0.5px 4px',borderRadius:2,background:`${cfg.color}20`,color:cfg.color,flexShrink:0,fontWeight:700}}>{cfg.tag}</span>
                          </div>
                          <div style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,color:'rgba(255,255,255,0.6)'}}>
@@ -1212,7 +1227,7 @@ export default function ComputerModeGamePage() {
                      }}>
                        {/* Phase label */}
                        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
-                         <span style={{fontFamily:'monospace',fontSize: 15, fontWeight: 700,color:`${cfg.color}cc`,fontWeight:700,textTransform:'uppercase',letterSpacing:0.5}}>
+                         <span style={{fontFamily:'monospace',fontSize: 15, color:`${cfg.color}cc`,fontWeight:700,textTransform:'uppercase',letterSpacing:0.5}}>
                            {bot.finished
                              ? '✅ SUBMITTED'
                              : `${phaseInfo.icon} ${phaseInfo.label}`
@@ -1227,11 +1242,11 @@ export default function ComputerModeGamePage() {
                        </div>
                        {bot.finished ? (
                          <div style={{
-                           fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: cfg.color,
+                           fontFamily: 'monospace', fontSize: 15,  color: cfg.color,
                            textAlign: 'center', padding: '10px 0', fontWeight: 'bold',
                            textShadow: `0 0 8px ${cfg.color}`,
                          }}>
-                           CODE COMPILED & SUBMITTED SUCCESSFULLY
+                           REQUIREMENTS PASSED & SUBMITTED
                          </div>
                        ) : (
                          <BinaryMatrix color={cfg.color} progress={bot.progress}/>
@@ -1255,10 +1270,10 @@ export default function ComputerModeGamePage() {
               Leaving now counts as a forfeit. The AI will be declared winner.
             </p>
             <div style={{display:'flex',gap:10}}>
-              <button onClick={()=>setExitModal(false)} style={{flex:1,padding:'12px 0',borderRadius:9,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(255,255,255,0.6)',cursor:'pointer',fontFamily:'Rajdhani,sans-serif',fontWeight:800,fontSize: 15, fontWeight: 700,textTransform:'uppercase'}}>
+              <button onClick={()=>setExitModal(false)} style={{flex:1,padding:'12px 0',borderRadius:9,border:'1px solid rgba(255,255,255,0.1)',background:'transparent',color:'rgba(255,255,255,0.6)',cursor:'pointer',fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,textTransform:'uppercase'}}>
                 KEEP FIGHTING
               </button>
-              <button onClick={()=>navigate('/computer-mode')} style={{flex:1,padding:'12px 0',borderRadius:9,border:'none',background:'linear-gradient(135deg,#ef4444,#dc2626)',color:'white',cursor:'pointer',fontFamily:'Rajdhani,sans-serif',fontWeight:900,fontSize: 15, fontWeight: 700,textTransform:'uppercase',boxShadow:'0 4px 14px rgba(239,68,68,0.4)'}}>
+              <button onClick={()=>navigate('/computer-mode')} style={{flex:1,padding:'12px 0',borderRadius:9,border:'none',background:'linear-gradient(135deg,#ef4444,#dc2626)',color:'white',cursor:'pointer',fontFamily:'Rajdhani,sans-serif',fontSize: 15, fontWeight: 700,textTransform:'uppercase',boxShadow:'0 4px 14px rgba(239,68,68,0.4)'}}>
                 FORFEIT
               </button>
             </div>

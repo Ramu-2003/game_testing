@@ -1,6 +1,6 @@
 import { ShoppingBag } from 'lucide-react';
 
-export const Store = ({ theme, id }) => {
+export const Store = ({ id }) => {
   // Store theme colors - Unique Orange/Amber color
   const contentTheme = {
     primary: '#F97316', // Orange

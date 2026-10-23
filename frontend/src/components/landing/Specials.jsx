@@ -1,6 +1,6 @@
 import { Gift } from 'lucide-react';
 
-export const Specials = ({ theme, id }) => {
+export const Specials = ({ id }) => {
   // Professional content colors
   const contentTheme = {
     primary: '#F59E0B', // Amber/Orange

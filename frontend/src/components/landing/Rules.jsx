@@ -1,6 +1,6 @@
 import { BookOpen } from 'lucide-react';
 
-export const Rules = ({ theme, id }) => {
+export const Rules = ({ id }) => {
   // Professional content colors
   const contentTheme = {
     primary: '#10B981', // Green

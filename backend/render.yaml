@@ -24,3 +24,7 @@ services:
         sync: false   # Set to your Vercel URL after deploying frontend
       - key: GROQ_API_KEYS
         sync: false   # Paste all comma-separated keys here
+      - key: CODE_RUNNER_URL
+        sync: false   # Optional private URL; leave unset until a runner is deployed
+      - key: CODE_RUNNER_SECRET
+        sync: false   # Optional 32+ byte secret shared with the private runner

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Trophy, Bug, User, Users, Target, Crown } from "lucide-react";
+import { Trophy, Bug } from "lucide-react";
 import { Navbar } from '../components/Navbar';
 import { Footer } from "../components/landing/Footer";
 import { CustomCursor } from "../components/landing/CustomCursor";
@@ -201,7 +201,7 @@ const Carousel = ({ theme, navigate }) => {
               ) : i === 3 ? (
                 <div 
                   className="w-full h-full bg-white relative overflow-hidden flex items-center justify-evenly cursor-pointer"
-                  onClick={() => navigate('/specials')}
+                  onClick={() => navigate('/bug-hunter')}
                 >
                   {/* Left Graphic: Bug */}
                   <div className="text-[#10b981] drop-shadow-lg relative">
@@ -230,7 +230,7 @@ const Carousel = ({ theme, navigate }) => {
                     <button 
                       className="mt-5 px-10 py-2.5 font-sans font-black text-xl rounded-lg border-4 border-black transition-transform hover:scale-105 active:scale-95"
                       style={{ backgroundColor: '#ffffff', color: 'black', boxShadow: '0 6px 0 0 black' }}
-                      onClick={(e) => { e.stopPropagation(); navigate('/specials'); }}
+                      onClick={(e) => { e.stopPropagation(); navigate('/bug-hunter'); }}
                     >
                       ENTER
                     </button>
@@ -239,7 +239,7 @@ const Carousel = ({ theme, navigate }) => {
               ) : i === 4 ? (
                 <div 
                   className="w-full h-full bg-white relative overflow-hidden flex items-center justify-evenly cursor-pointer"
-                  onClick={() => navigate('/specials')}
+                  onClick={() => navigate('/tournament')}
                 >
                   {/* Left Graphic: Podium */}
                   <div className="flex items-end h-[150px] drop-shadow-lg">
@@ -277,7 +277,7 @@ const Carousel = ({ theme, navigate }) => {
                     <button 
                       className="mt-5 px-10 py-2.5 font-sans font-black text-xl rounded-lg border-4 border-black transition-transform hover:scale-105 active:scale-95"
                       style={{ backgroundColor: '#ffffff', color: 'black', boxShadow: '0 6px 0 0 black' }}
-                      onClick={(e) => { e.stopPropagation(); navigate('/specials'); }}
+                      onClick={(e) => { e.stopPropagation(); navigate('/tournament'); }}
                     >
                       ENTER
                     </button>
@@ -309,7 +309,7 @@ const Carousel = ({ theme, navigate }) => {
   );
 };
 
-const SpecialCard = ({ title, badge, type, navigate, theme }) => {
+const SpecialCard = ({ title, badge, type, theme, onEnter }) => {
   let cardTop;
 
   if (type === "tournament") {
@@ -397,33 +397,19 @@ const SpecialCard = ({ title, badge, type, navigate, theme }) => {
         </span>
         <button
           type="button"
-          onClick={() => {
-            if (type === "tournament") {
-              navigate("/tournament-mode"); // Or wherever it should go
-            } else if (type === "bug-hunter") {
-              navigate("/bug-hunter"); // Or wherever it should go
-            }
-          }}
-          className="font-sans font-bold text-white uppercase rounded-full transition-all duration-300 hover:scale-105"
+          onClick={onEnter}
+          className="font-sans font-bold text-white uppercase rounded-full"
           style={{
             width: "148px",
             paddingTop: "10px",
             paddingBottom: "10px",
-            background: "#c81e1e",
+            background: theme.accent,
             letterSpacing: "0.22em",
             fontSize: "13px",
-            boxShadow: '0 2px 8px rgba(200, 30, 30, 0.3)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = "#a01818";
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(200, 30, 30, 0.4)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = "#c81e1e";
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(200, 30, 30, 0.3)';
+            cursor: 'pointer',
           }}
         >
-          ENTER
+          ENTER ARENA
         </button>
       </div>
     </div>
@@ -496,15 +482,15 @@ const SpecialsModePage = () => {
               title="TOURNAMENT MODE"
               badge="COMPETITIVE"
               type="tournament"
-              navigate={navigate}
               theme={currentTheme}
+              onEnter={() => navigate('/tournament')}
             />
             <SpecialCard
               title="BUG HUNTER ARENA"
               badge="CHALLENGE"
               type="bug-hunter"
-              navigate={navigate}
               theme={currentTheme}
+              onEnter={() => navigate('/bug-hunter')}
             />
           </div>
         </div>
